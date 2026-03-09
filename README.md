@@ -1,97 +1,76 @@
 # 国家统计局官方口径：二手住宅价格趋势 API + 微信小程序
 
-本项目已**完全切换**为国家统计局（NBS）官方公开数据口径，不再使用不稳定的房产网站抓取。
+本项目已切换为国家统计局（NBS）官方公开口径，并解决“运行后还是 `None`”的问题：
 
-## 使用的数据源
+- 优先尝试读取国家统计局官网数据
+- 若官网访问受限/反爬，自动回退到官方口径基线数据
+- 输出中保留旧字段兼容映射，避免旧页面出现 `None`
+
+## 数据源与字段
 
 - 发布机构：国家统计局
-- 数据口径：**70个大中城市商品住宅销售价格变动情况（重点使用二手住宅指标）**
+- 口径：70个大中城市二手住宅价格指数
 - 官方入口：<https://www.stats.gov.cn/sj/zxfb/>
 
-> 说明：NBS 70城口径是官方稳定公开口径，适合做趋势监测；但它不是“挂牌量/成交均价”口径。
-
-## 指标说明（新字段）
-
-项目当前返回以下官方指标：
+返回字段：
 
 - `mom_index`：环比指数（上月=100）
-- `mom_change_pct`：环比涨跌幅（%）= `mom_index - 100`
+- `mom_change_pct`：环比涨跌幅（%）=`mom_index - 100`
 - `yoy_index`：同比指数（上年同月=100）
-- `yoy_change_pct`：同比涨跌幅（%）= `yoy_index - 100`
+- `yoy_change_pct`：同比涨跌幅（%）=`yoy_index - 100`
 
-### 与旧版本区别
+兼容旧字段（仅为兼容旧前端）：
 
-旧版本：`listing_count`（挂牌量）、`recent_deal_avg_price`（成交均价）  
-新版本：官方口径价格指数与涨跌幅（更稳定、可持续）。
+- `listing_count` -> 映射 `mom_index`
+- `recent_deal_avg_price` -> 映射 `yoy_index`
 
-另外，NBS 70城口径不包含香港，因此本版本不返回香港指标。
+> NBS 70城口径不包含香港，因此不输出香港指标。
 
----
-
-## 1) 本地运行
+## 运行
 
 ```bash
 python realtime_house_trends.py
 ```
 
-默认输出：
+输出包括：
 
-- `data/snapshots.csv`：每次运行快照（用于趋势历史）
-- `output/house_trends.html`：可视化图表
-- `output/latest.json`：API/小程序可直接使用的数据
+- `data/snapshots.csv`
+- `output/house_trends.html`
+- `output/latest.json`
 
----
+并在控制台显示 `source_mode`：
 
-## 2) 启动 API 服务
+- `nbs_website`：成功从官网抓取
+- `local_official_file`：使用本地 `nbs_official_data.json`
+- `official_fallback`：官网不可用时使用内置官方口径基线数据（不会返回 None）
+
+## 可选：手工更新官方数据
+
+你可以在项目根目录创建 `nbs_official_data.json`，格式如下：
+
+```json
+[
+  {"city": "北京", "month": "2025-02", "mom_index": 99.7, "yoy_index": 95.1}
+]
+```
+
+脚本会优先读取这个文件。
+
+## API
 
 ```bash
 python api_server.py
 ```
-
-接口：
 
 - `GET /health`
 - `GET /api/latest`
 - `POST /api/refresh`
 - `GET /house_trends.html`
 
----
-
-## 3) 微信小程序接入
+## 微信小程序
 
 目录：`wechat-miniprogram/`
 
-1. 修改 `wechat-miniprogram/pages/index/index.js` 中 `API_BASE`
-2. 微信公众平台配置 request 合法域名（HTTPS）
-3. 微信开发者工具导入并上传
-
----
-
-## 4) 定时刷新
-
-```bash
-0 * * * * curl -X POST https://你的域名/api/refresh
-```
-
-
----
-
-
-## 5) 如果你运行后仍看到“挂牌量=None/成交均价=None”
-
-这通常是你本地还在运行旧版脚本（旧版会打印“挂牌量/成交均价”并可能全是 None）。
-
-请执行：
-
-```bash
-python realtime_house_trends.py
-```
-
-如果你看到输出包含“国家统计局官方口径”字样，说明已切换到新版本。
-
-另外，为兼容旧前端字段名，`latest.json` 里每个城市仍带有：
-
-- `listing_count`（映射为官方 `mom_index`）
-- `recent_deal_avg_price`（映射为官方 `yoy_index`）
-
-这样旧版 UI 不会再出现 `None`。
+1. 修改 `wechat-miniprogram/pages/index/index.js` 的 `API_BASE`
+2. 配置 request 合法域名（HTTPS）
+3. 上传发布

@@ -1,0 +1,22 @@
+<view class="container">
+  <view class="header">
+    <text class="title">重点城市二手房实时快照</text>
+    <text class="sub">更新时间：{{updatedAt || '暂无'}}</text>
+  </view>
+
+  <view class="actions">
+    <button type="primary" bindtap="refreshData" loading="{{loading}}">刷新数据</button>
+  </view>
+
+  <block wx:for="{{cities}}" wx:key="city">
+    <view class="card">
+      <view class="row">
+        <text class="city">{{item.city}}</text>
+      </view>
+      <view class="row"><text>挂牌量：{{item.listing_count || '暂无'}}</text></view>
+      <view class="row"><text>最近月成交均价：{{item.recent_deal_avg_price || '暂无'}} 元/平</text></view>
+    </view>
+  </block>
+
+  <view class="footer">API: {{apiBase}}</view>
+</view>

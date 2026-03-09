@@ -1,0 +1,15 @@
+.container { padding: 24rpx; }
+.header { margin-bottom: 24rpx; }
+.title { font-size: 34rpx; font-weight: 700; display: block; }
+.sub { font-size: 24rpx; color: #666; margin-top: 8rpx; display: block; }
+.actions { margin-bottom: 24rpx; }
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 6rpx 16rpx rgba(0,0,0,.05);
+}
+.row { margin: 8rpx 0; font-size: 26rpx; color: #333; }
+.city { font-size: 30rpx; font-weight: 700; }
+.footer { font-size: 22rpx; color: #888; margin-top: 10rpx; }

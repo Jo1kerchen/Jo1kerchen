@@ -1,0 +1,22 @@
+<view class="container">
+  <view class="header">
+    <text class="title">国家统计局官方：二手住宅价格指标</text>
+    <text class="sub">更新时间：{{updatedAt || '暂无'}}</text>
+  </view>
+
+  <view class="actions">
+    <button type="primary" bindtap="refreshData" loading="{{loading}}">刷新数据</button>
+  </view>
+
+  <block wx:for="{{cities}}" wx:key="city">
+    <view class="card">
+      <view class="row"><text class="city">{{item.city}}（{{item.month}}）</text></view>
+      <view class="row"><text>环比指数（上月=100）：{{item.mom_index}}</text></view>
+      <view class="row"><text>环比涨跌幅：{{item.mom_change_pct}}%</text></view>
+      <view class="row"><text>同比指数（上年同月=100）：{{item.yoy_index}}</text></view>
+      <view class="row"><text>同比涨跌幅：{{item.yoy_change_pct}}%</text></view>
+    </view>
+  </block>
+
+  <view class="footer">API: {{apiBase}}</view>
+</view>

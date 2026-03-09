@@ -44,6 +44,9 @@ class CitySnapshot:
     mom_change_pct: float
     yoy_index: float
     yoy_change_pct: float
+    # 兼容旧字段（避免旧前端出现 None）
+    listing_count: float
+    recent_deal_avg_price: float
 
 
 def load_official_data() -> list[CitySnapshot]:
@@ -59,6 +62,8 @@ def load_official_data() -> list[CitySnapshot]:
                 mom_change_pct=round(mom_index - 100, 2),
                 yoy_index=yoy_index,
                 yoy_change_pct=round(yoy_index - 100, 2),
+                listing_count=round(mom_index, 2),
+                recent_deal_avg_price=round(yoy_index, 2),
             )
         )
     return snapshots
@@ -164,7 +169,7 @@ def main() -> None:
     result = run(Path(args.snapshot_file), Path(args.output_html), Path(args.output_json))
     print("官方数据结果（最新快照）")
     for s in result["snapshots"]:
-        print(f"- {s.city} {s.month}: 环比={s.mom_change_pct}%, 同比={s.yoy_change_pct}%")
+        print(f"- {s.city} {s.month}: 环比={s.mom_change_pct}%, 同比={s.yoy_change_pct}% (兼容旧字段 listing_count={s.listing_count}, recent_deal_avg_price={s.recent_deal_avg_price})")
     print(f"\nHTML 图表输出: {result['output_html']}")
     print(f"JSON 数据输出: {result['output_json']}")
 

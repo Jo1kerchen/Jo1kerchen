@@ -72,3 +72,26 @@ python api_server.py
 ```bash
 0 * * * * curl -X POST https://你的域名/api/refresh
 ```
+
+
+---
+
+
+## 5) 如果你运行后仍看到“挂牌量=None/成交均价=None”
+
+这通常是你本地还在运行旧版脚本（旧版会打印“挂牌量/成交均价”并可能全是 None）。
+
+请执行：
+
+```bash
+python realtime_house_trends.py
+```
+
+如果你看到输出包含“国家统计局官方口径”字样，说明已切换到新版本。
+
+另外，为兼容旧前端字段名，`latest.json` 里每个城市仍带有：
+
+- `listing_count`（映射为官方 `mom_index`）
+- `recent_deal_avg_price`（映射为官方 `yoy_index`）
+
+这样旧版 UI 不会再出现 `None`。

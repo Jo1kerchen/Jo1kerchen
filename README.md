@@ -224,32 +224,50 @@ python moutai_secondary_market_chart.py   --stock-csv data/stock_prices_auto.csv
 - 股价列名支持：`close / stock_close / price`
 
 
-## 7) 读取CSV生成双轴图（53度飞天茅台散瓶 vs 贵州茅台股价）
+## 7) 读取CSV生成双轴图 + 交互HTML（53度飞天茅台散瓶 vs 贵州茅台股价）
 
-本脚本已支持直接读取你提供的酒价 CSV，并按 A 股交易日对齐绘图：
+默认运行：
 
 ```bash
-python moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/moutai_liquor_prices.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
+python3 moutai_secondary_market_chart.py
+```
+
+或指定输入输出：
+
+```bash
+python3 moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/moutai_liquor_prices.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-html output/moutai_stock_vs_liquor_interactive.html   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
 ```
 
 输出文件：
-- `output/moutai_stock_vs_liquor_dual_axis.png`
-- `output/moutai_stock_vs_liquor_merged.csv`
+- `output/moutai_stock_vs_liquor_interactive.html`（可分享交互版）
+- `output/moutai_stock_vs_liquor_merged.csv`（对齐结果）
+- `output/moutai_stock_vs_liquor_dual_axis.png`（静态图，保留）
+
+如何打开 HTML：
+- 直接双击 `output/moutai_stock_vs_liquor_interactive.html`，或浏览器“打开文件”。
+- 无需启动 Flask/Django 等服务。
+
+HTML 交互能力：
+- 鼠标移动显示同一日期下的：日期、贵州茅台收盘价、飞天茅台53度散瓶参考价。
+- 双轴折线同图展示（左轴股价，右轴酒价）。
+- 包含最新股价与最新酒价标签注释。
 
 对齐规则：
 - 以 A 股交易日（贵州茅台收盘价）为主时间轴。
 - 酒价映射到交易日并做 forward fill（向前填充）。
 - A 股非交易日不会出现在横轴中。
 
-酒价 CSV 字段映射支持：
-- 日期列：`date` 或 `日期`
-- 价格列：`liquor_price_ref` / `price` / `市场价` / `参考价` / `secondary_price`
-
-股票 CSV 字段映射支持：
-- 日期列：`date` 或 `日期`
-- 收盘价列：`close` / `stock_close` / `收盘价` / `price`
-
 fallback 说明：
-- 若酒价 CSV 不存在，脚本会自动生成 demo/mock 酒价序列（2018-01-01 至今，约 1700~3300 波动），并打印：
+- 若酒价 CSV 不存在，脚本会自动使用 demo/mock 序列，并打印：
   - `Using demo/mock liquor price data because real liquor price data was not found.`
 - 若股票 CSV 不存在，脚本会自动尝试 Eastmoney 抓取；抓取失败会明确报错。
+
+可选依赖（推荐，非必须）：
+- 若安装 `plotly`，脚本会优先输出 Plotly 交互HTML（unified hover + 双轴）。
+- 未安装 `plotly` 时，脚本会自动回退到内置原生JS交互HTML（仍可本地离线打开与悬停查看）。
+
+安装 plotly（可选）：
+
+```bash
+python3 -m pip install plotly
+```

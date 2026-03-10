@@ -222,3 +222,34 @@ python moutai_secondary_market_chart.py   --stock-csv data/stock_prices_auto.csv
 - 时间轴按天对齐，但以 A 股交易日为准（`inner`），A 股不开盘且酒价存在的日期会自动跳过。
 - 酒价列名支持：`secondary_price / liquor_price / market_price / price`
 - 股价列名支持：`close / stock_close / price`
+
+
+## 7) 读取CSV生成双轴图（53度飞天茅台散瓶 vs 贵州茅台股价）
+
+本脚本已支持直接读取你提供的酒价 CSV，并按 A 股交易日对齐绘图：
+
+```bash
+python moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/moutai_liquor_prices.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
+```
+
+输出文件：
+- `output/moutai_stock_vs_liquor_dual_axis.png`
+- `output/moutai_stock_vs_liquor_merged.csv`
+
+对齐规则：
+- 以 A 股交易日（贵州茅台收盘价）为主时间轴。
+- 酒价映射到交易日并做 forward fill（向前填充）。
+- A 股非交易日不会出现在横轴中。
+
+酒价 CSV 字段映射支持：
+- 日期列：`date` 或 `日期`
+- 价格列：`liquor_price_ref` / `price` / `市场价` / `参考价` / `secondary_price`
+
+股票 CSV 字段映射支持：
+- 日期列：`date` 或 `日期`
+- 收盘价列：`close` / `stock_close` / `收盘价` / `price`
+
+fallback 说明：
+- 若酒价 CSV 不存在，脚本会自动生成 demo/mock 酒价序列（2018-01-01 至今，约 1700~3300 波动），并打印：
+  - `Using demo/mock liquor price data because real liquor price data was not found.`
+- 若股票 CSV 不存在，脚本会自动尝试 Eastmoney 抓取；抓取失败会明确报错。

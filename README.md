@@ -25,6 +25,7 @@
 - 支持中文“万”格式标准化：
   - `2万次查看 -> 20000`
 - 支持中英文界面关键字提取
+- 支持批量链接抓取并导出 CSV（按输入顺序处理）
 
 ## 安装依赖
 
@@ -42,31 +43,43 @@ python3 -m playwright install chromium
 
 ## 运行方式
 
-默认非 headless（方便调试）：
+### 单条链接（保留）
 
 ```bash
-python3 x_metrics_browser.py "https://x.com/xxx/status/123"
+python3 x_metrics_browser.py "https://x.com/aaa/status/123"
 ```
 
-也支持 twitter.com：
+### 多条链接（命令行直接传）
 
 ```bash
-python3 x_metrics_browser.py "https://twitter.com/xxx/status/123"
+python3 x_metrics_browser.py \
+  "https://x.com/aaa/status/123" \
+  "https://x.com/bbb/status/456" \
+  --output-csv results.csv
 ```
 
-使用无头模式：
+### 从文件批量输入
 
 ```bash
-python3 x_metrics_browser.py "https://x.com/xxx/status/123" --headless
+python3 x_metrics_browser.py --input-file links.txt --output-csv results.csv
 ```
 
-可调超时（秒）：
+`links.txt` 示例（自动跳过空行，自动去除首尾空格）：
 
-```bash
-python3 x_metrics_browser.py "https://x.com/xxx/status/123" --timeout 45
+```text
+https://x.com/aaa/status/123
+https://x.com/bbb/status/456
+https://twitter.com/ccc/status/789
 ```
 
-## Views 专项调试（新增）
+### 可选参数
+
+- `--headless`：无头模式
+- `--timeout 45`：单页超时秒数
+- `--debug-views`：打印 Views 候选节点调试信息
+- `--output-csv results.csv`：将结果写入 CSV
+
+## Views 专项调试
 
 当你怀疑 Views 一直是 `N/A` 时，可打开调试模式：
 
@@ -79,16 +92,40 @@ python3 x_metrics_browser.py "https://x.com/xxx/status/123" --debug-views
 - article 附近可能的 metric 节点原始文本
 - metric row 子节点按顺序的原始文本
 
-这能帮助你定位页面真实结构并验证视图计数来源。
+## CSV 输出字段
 
-## 登录策略（默认不强制登录）
+CSV 列名如下：
 
-- 程序默认尝试在未登录状态下抓取。
-- 如果页面在未登录状态可读到数据，会直接输出，不会要求登录。
-- 只有当页面确实无法稳定提取时，程序会提示：
-  - `当前页面在未登录状态下无法稳定提取数据`
+- `input_url`
+- `tweet_id`
+- `is_repost`
+- `current_likes`
+- `current_replies`
+- `current_reposts`
+- `current_views`
+- `original_tweet_id`
+- `original_likes`
+- `original_replies`
+- `original_reposts`
+- `original_views`
+- `status`（`success` / `failed`）
+- `error`（失败原因；成功为空）
 
-## 输出示例
+说明：
+- 非 repost 时，`original_*` 字段为空。
+- 单条失败不会中断批量任务，后续链接继续处理。
+- CSV 顺序与输入顺序严格一致。
+
+## CSV 示例
+
+```csv
+input_url,tweet_id,is_repost,current_likes,current_replies,current_reposts,current_views,original_tweet_id,original_likes,original_replies,original_reposts,original_views,status,error
+https://x.com/aaa/status/123,123,No,10,2,3,205,,,,, ,success,
+https://x.com/bbb/status/456,456,Yes,5,1,1,88,999,100,20,30,5000,success,
+https://x.com/bad/url,,, , , , , , , , , ,failed,Invalid URL
+```
+
+## 单条输出示例
 
 ```text
 Input URL: https://x.com/xxx/status/123
@@ -113,20 +150,14 @@ Original post metrics:
 如果不是 repost，则只输出 `Current post metrics`。  
 如果 original post 无法识别或访问，会输出提示但程序不崩溃。
 
-## 调试日志
+## 运行日志
 
-脚本会输出适量日志，例如：
-- `Launching browser...`
-- `Opening page...`
-- `Attempting extraction without login...`
-- `Page loaded`
-- `Extracting current post metrics...`
-- `Extracting original post metrics...`
-- `Extracting Likes...`
-- `Extracting Replies...`
-- `Extracting Reposts...`
-- `Extracting Views...`
-- `Extraction succeeded / failed`
+批量模式会输出简洁进度，例如：
+
+```text
+[1/10] Processing: https://x.com/aaa/status/123
+[2/10] Processing: https://x.com/bbb/status/456
+```
 
 ## 常见失败原因
 

@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Optional
 
+from playwright.sync_api import Browser
+from playwright.sync_api import BrowserContext
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -32,6 +36,24 @@ class Metrics:
     replies: str = "N/A"
     reposts: str = "N/A"
     views: str = "N/A"
+
+
+@dataclass
+class CsvRow:
+    input_url: str
+    tweet_id: str = ""
+    is_repost: str = ""
+    current_likes: str = ""
+    current_replies: str = ""
+    current_reposts: str = ""
+    current_views: str = ""
+    original_tweet_id: str = ""
+    original_likes: str = ""
+    original_replies: str = ""
+    original_reposts: str = ""
+    original_views: str = ""
+    status: str = "failed"
+    error: str = ""
 
 
 def log(msg: str) -> None:
@@ -78,7 +100,6 @@ def first_count(text: str) -> Optional[str]:
     if not text:
         return None
 
-    # 中文“2万次查看”
     wan_match = WAN_VIEW_RE.search(text)
     if wan_match:
         return str(int(float(wan_match.group(1)) * 10_000))
@@ -270,7 +291,6 @@ def debug_view_candidates(page: Page) -> None:
 def extract_views(page: Page, debug_views: bool = False) -> str:
     keywords = ["view", "views", "浏览", "瀏覽", "查看", "次查看", "impression", "impressions"]
 
-    # 1) direct testid analytics
     value = extract_metric(
         page,
         testids=["analytics"],
@@ -281,7 +301,6 @@ def extract_views(page: Page, debug_views: bool = False) -> str:
         debug(f"views from analytics/test patterns: {value}", debug_views)
         return value
 
-    # 2) find any article node with views keywords in text/aria/title
     selectors = [
         "article[data-testid='tweet'] [aria-label]",
         "article[data-testid='tweet'] [title]",
@@ -308,7 +327,6 @@ def extract_views(page: Page, debug_views: bool = False) -> str:
         except PlaywrightError:
             continue
 
-    # 3) try metric row's last meaningful element (often views)
     try:
         row = page.locator("article[data-testid='tweet'] div[role='group']").first
         if row.count() > 0:
@@ -404,54 +422,155 @@ def print_metrics_block(title: str, tweet_id: str, metrics: Metrics) -> None:
     print(f"  Views: {metrics.views}")
 
 
-def run(url: str, headless: bool, timeout_s: int, debug_views: bool) -> int:
-    normalized_url = normalize_url(url)
+def scrape_single(page: Page, input_url: str, timeout_ms: int, debug_views: bool) -> tuple[CsvRow, Optional[Metrics], Optional[Metrics]]:
+    row = CsvRow(input_url=input_url)
+    current_metrics: Optional[Metrics] = None
+    original_metrics: Optional[Metrics] = None
+
+    normalized_url = normalize_url(input_url)
     current_tweet_id = extract_tweet_id(normalized_url)
-    timeout_ms = max(timeout_s, 5) * 1000
+    row.tweet_id = current_tweet_id
+
+    log(f"Opening page... {normalized_url}")
+    page.goto(normalized_url, wait_until="domcontentloaded", timeout=timeout_ms)
+    dismiss_blocking_overlays(page)
+
+    log("Attempting extraction without login...")
+    wait_for_main_post(page, timeout_ms)
+    log("Page loaded")
+
+    log("Extracting current post metrics...")
+    current_metrics = collect_metrics(page, debug_views=debug_views)
+    is_repost, original_id = detect_repost_and_original(page, current_tweet_id)
+
+    row.is_repost = "Yes" if is_repost else "No"
+    row.current_likes = current_metrics.likes
+    row.current_replies = current_metrics.replies
+    row.current_reposts = current_metrics.reposts
+    row.current_views = current_metrics.views
+
+    if not has_any_metric(current_metrics):
+        warn("当前页面在未登录状态下无法稳定提取数据")
+
+    if is_repost and original_id:
+        row.original_tweet_id = original_id
+        log("Extracting original post metrics...")
+        original_url = f"https://x.com/i/status/{original_id}"
+        try:
+            page.goto(original_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            dismiss_blocking_overlays(page)
+            wait_for_main_post(page, timeout_ms)
+            original_metrics = collect_metrics(page, debug_views=debug_views)
+            row.original_likes = original_metrics.likes
+            row.original_replies = original_metrics.replies
+            row.original_reposts = original_metrics.reposts
+            row.original_views = original_metrics.views
+        except Exception as exc:  # noqa: BLE001
+            warn(f"Failed to extract original post metrics: {exc}")
+            row.error = f"original extraction failed: {exc}"
+    elif is_repost:
+        row.error = "unable to identify original post ID"
+
+    row.status = "success"
+    return row, current_metrics, original_metrics
+
+
+def print_single_output(row: CsvRow, current_metrics: Optional[Metrics], original_metrics: Optional[Metrics]) -> None:
+    print(f"\nInput URL: {row.input_url}")
+    print(f"Tweet ID: {row.tweet_id}")
+    print(f"Is repost: {row.is_repost}")
+
+    if current_metrics:
+        print_metrics_block("Current post metrics", row.tweet_id, current_metrics)
+
+    if row.is_repost == "Yes":
+        if original_metrics and row.original_tweet_id:
+            print_metrics_block("Original post metrics", row.original_tweet_id, original_metrics)
+        elif row.original_tweet_id:
+            print("\nOriginal post metrics: N/A (unable to access or extract original post)")
+        else:
+            print("\nOriginal post metrics: N/A (unable to identify original post ID)")
+
+
+def read_links_from_file(path: str) -> list[str]:
+    p = Path(path)
+    if not p.exists():
+        raise XBrowserMetricsError(f"Input file not found: {path}")
+
+    lines = p.read_text(encoding="utf-8").splitlines()
+    links = [line.strip() for line in lines if line.strip()]
+    return links
+
+
+def gather_input_urls(args: argparse.Namespace) -> list[str]:
+    urls: list[str] = []
+
+    if args.input_file:
+        urls.extend(read_links_from_file(args.input_file))
+
+    if args.urls:
+        urls.extend([u.strip() for u in args.urls if u.strip()])
+
+    if not urls:
+        raise XBrowserMetricsError("No input URLs provided. Use positional URL(s) or --input-file.")
+
+    return urls
+
+
+def write_csv(rows: list[CsvRow], csv_path: str) -> None:
+    fieldnames = list(CsvRow.__annotations__.keys())
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def run(args: argparse.Namespace) -> int:
+    urls = gather_input_urls(args)
+    timeout_ms = max(args.timeout, 5) * 1000
+    is_batch = len(urls) > 1 or bool(args.input_file) or bool(args.output_csv)
 
     log("Launching browser...")
 
+    rows: list[CsvRow] = []
+
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context(viewport={"width": 1400, "height": 900})
-            page = context.new_page()
+            browser: Browser = p.chromium.launch(headless=args.headless)
+            context: BrowserContext = browser.new_context(viewport={"width": 1400, "height": 900})
+            page: Page = context.new_page()
 
             try:
-                log(f"Opening page... {normalized_url}")
-                page.goto(normalized_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                dismiss_blocking_overlays(page)
-
-                log("Attempting extraction without login...")
-                wait_for_main_post(page, timeout_ms)
-                log("Page loaded")
-
-                log("Extracting current post metrics...")
-                current_metrics = collect_metrics(page, debug_views=debug_views)
-                is_repost, original_id = detect_repost_and_original(page, current_tweet_id)
-
-                if not has_any_metric(current_metrics):
-                    warn("当前页面在未登录状态下无法稳定提取数据")
-
-                print(f"\nInput URL: {url}")
-                print(f"Tweet ID: {current_tweet_id}")
-                print(f"Is repost: {'Yes' if is_repost else 'No'}")
-                print_metrics_block("Current post metrics", current_tweet_id, current_metrics)
-
-                if is_repost and original_id:
-                    log("Extracting original post metrics...")
-                    original_url = f"https://x.com/i/status/{original_id}"
+                total = len(urls)
+                for index, input_url in enumerate(urls, start=1):
+                    print(f"[{index}/{total}] Processing: {input_url}")
                     try:
-                        page.goto(original_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                        dismiss_blocking_overlays(page)
-                        wait_for_main_post(page, timeout_ms)
-                        original_metrics = collect_metrics(page, debug_views=debug_views)
-                        print_metrics_block("Original post metrics", original_id, original_metrics)
+                        row, current_metrics, original_metrics = scrape_single(
+                            page=page,
+                            input_url=input_url,
+                            timeout_ms=timeout_ms,
+                            debug_views=args.debug_views,
+                        )
+                        rows.append(row)
+
+                        if not is_batch:
+                            print_single_output(row, current_metrics, original_metrics)
                     except Exception as exc:  # noqa: BLE001
-                        warn(f"Failed to extract original post metrics: {exc}")
-                        print("\nOriginal post metrics: N/A (unable to access or extract original post)")
-                elif is_repost:
-                    print("\nOriginal post metrics: N/A (unable to identify original post ID)")
+                        fail_row = CsvRow(input_url=input_url, status="failed", error=str(exc))
+                        try:
+                            fail_row.tweet_id = extract_tweet_id(normalize_url(input_url))
+                        except Exception:  # noqa: BLE001
+                            pass
+                        rows.append(fail_row)
+                        warn(f"Failed: {input_url} -> {exc}")
+
+                if args.output_csv:
+                    write_csv(rows, args.output_csv)
+                    log(f"CSV written: {args.output_csv}")
+
+                if is_batch and not args.output_csv:
+                    log("Batch run finished. Use --output-csv to save structured results.")
 
                 log("Extraction succeeded")
                 return 0
@@ -472,7 +591,9 @@ def run(url: str, headless: bool, timeout_s: int, debug_views: bool) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fetch X/Twitter metrics from webpage via Playwright.")
-    parser.add_argument("url", help="X/Twitter status URL")
+    parser.add_argument("urls", nargs="*", help="One or multiple X/Twitter status URLs")
+    parser.add_argument("--input-file", help="Read URLs from text file (one URL per line)")
+    parser.add_argument("--output-csv", help="Write batch results to CSV file")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode (default: non-headless)")
     parser.add_argument("--timeout", type=int, default=30, help="Page timeout in seconds (default: 30)")
     parser.add_argument(
@@ -485,7 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    return run(args.url, headless=args.headless, timeout_s=args.timeout, debug_views=args.debug_views)
+    return run(args)
 
 
 if __name__ == "__main__":

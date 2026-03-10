@@ -17,11 +17,13 @@
 - 支持 repost/retweet：
   - 先输出 current post metrics
   - 再尝试抓取 original post metrics
-- 支持 Views 抓取
+- 支持 Views 抓取（重点增强）
 - 对 `K/M/B` 缩写数字做标准化：
   - `1.2K -> 1200`
   - `3.4M -> 3400000`
   - `2B -> 2000000000`
+- 支持中文“万”格式标准化：
+  - `2万次查看 -> 20000`
 - 支持中英文界面关键字提取
 
 ## 安装依赖
@@ -63,6 +65,21 @@ python3 x_metrics_browser.py "https://x.com/xxx/status/123" --headless
 ```bash
 python3 x_metrics_browser.py "https://x.com/xxx/status/123" --timeout 45
 ```
+
+## Views 专项调试（新增）
+
+当你怀疑 Views 一直是 `N/A` 时，可打开调试模式：
+
+```bash
+python3 x_metrics_browser.py "https://x.com/xxx/status/123" --debug-views
+```
+
+调试模式会额外打印：
+- 包含 `view/views/浏览/查看/次查看/impression(s)` 的节点（text / aria-label / title / data-testid）
+- article 附近可能的 metric 节点原始文本
+- metric row 子节点按顺序的原始文本
+
+这能帮助你定位页面真实结构并验证视图计数来源。
 
 ## 登录策略（默认不强制登录）
 
@@ -116,7 +133,9 @@ Original post metrics:
 - 推文不可见（删除、私密、地区限制）
 - 页面动态加载未完成
 - 未登录状态下弹层遮挡且无法自动关闭
+- 当前页面结构变化导致 Views 位置变化（建议使用 `--debug-views`）
 
 遇到失败可尝试：
 - 增大 `--timeout`
 - 使用非 headless 模式观察页面真实状态
+- 加 `--debug-views` 输出候选节点并定位

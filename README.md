@@ -9,6 +9,13 @@
 - 单条抓取失败不会中断后续任务
 - 表格展示抓取结果
 - 一键下载 CSV
+- 支持 Debug 模式（页面结构调试）：
+  - 每条链接输出原始 URL、最终 URL、页面标题
+  - 页面可见文本/`body.innerText` 片段
+  - 关键词命中文本节点
+  - 消息容器候选节点文本
+  - 短文本节点列表
+  - 常见 Telegram 按钮文案出现情况
 
 输出字段包括：
 
@@ -40,6 +47,12 @@ python -m playwright install chromium
 ```bash
 cd telegram_views_tool
 streamlit run app.py
+```
+
+可选：通过 CLI 参数打开默认 Debug 和默认超时（秒）：
+
+```bash
+streamlit run app.py -- --debug --timeout 30
 ```
 
 启动后在浏览器中打开 Streamlit 页面，粘贴如下格式链接即可抓取：

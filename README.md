@@ -103,3 +103,108 @@ curl http://127.0.0.1:8000/health
 
 - 若运行环境访问目标站点受限（403/反爬），抓取结果可能为 `None`，接口仍可正常返回。
 - 需要更强稳定性时，建议增加代理池、重试、以及可授权数据源。
+
+---
+---
+
+## 6) 贵州茅台（26年飞天）二级市场价 + 600519 A股：全自动抓取与出图
+
+### 一键全流程
+
+```bash
+python moutai_secondary_market_chart.py \
+  --fetch-stock \
+  --fetch-liquor \
+  --liquor-fetch-mode auto \
+  --liquor-web-sources "https://www.todayjiu.com/,https://www.jiuxiwang.cn/,https://www.jiuchacha.com/" \
+  --history-index-url "https://mp.weixin.qq.com/mp/appmsgalbum?..." \
+  --start 2025-01-01 \
+  --end 2026-03-01 \
+  --align-mode inner \
+  --fill-mode none
+```
+
+默认输出：
+
+- 抓取结果（清洗后）
+  - `data/stock_prices_auto.csv`
+  - `data/liquor_prices_auto.csv`
+- 抓取原始记录（用于复核）
+  - `data/stock_prices_auto_raw.csv`
+  - `data/liquor_prices_auto_raw.csv`
+- **公众号历史文章索引清单**
+  - `data/liquor_article_index.csv`
+- 对齐后数据
+  - `output/moutai_auto_aligned.csv`
+- 图表（入库保留 SVG）
+  - `output/moutai_auto_dual.svg`
+  - `output/moutai_auto_normalized.svg`
+
+> 说明：PNG 为本地运行时可选产物，已加入 `.gitignore`，不纳入仓库提交。
+
+### 抓取主入口（已改为历史列表页）
+
+酒价抓取不再以单篇文章页为入口，改为：
+
+- **主入口**：公众号历史文章列表页 / 相册索引页（`--history-index-url`）
+- 先提取文章索引（标题、日期、文章 URL 或跳转参数）
+- 再批量抓取正文并解析价格
+
+脚本会优先尝试从列表页响应中提取：
+1. 文章标题
+2. 文章日期
+3. 每篇文章 URL（若缺失则尝试保留 `__biz/mid/idx/sn` 跳转参数）
+
+若索引页无法提取 URL/参数，脚本会给出明确报错并说明缺失项，不要求手工逐篇点开。
+
+优先逻辑：
+- `--liquor-fetch-mode web`：只用公开网页源抓取“飞天茅台散瓶”相关日度记录
+- `--liquor-fetch-mode history`：只用公众号历史列表页做索引抓取
+- `--liquor-fetch-mode auto`（默认）：先尝试网页源，失败后自动回退到历史列表页
+
+网页源状态会写入 `data/liquor_article_index.csv`（source_url、matched_rows、status）。
+
+### 抓取来源与口径
+
+1) **股票（自动抓取）**
+- 来源：Eastmoney K线接口（`secid=1.600519`）
+- 字段：日线 OHLCV 等（raw），并提取 `date, close` 用于对齐绘图
+- 失败处理：抛出明确错误（如 403、超时、空数据）并停止执行
+
+2) **酒价（自动抓取）**
+- 来源优先级：公开网页源（自动搜索飞天茅台散瓶）→ 公众号历史文章列表页（回退）
+- 可配置网页源：`--liquor-web-sources`
+- 商品匹配规则：
+  - 标题过滤：包含 `茅台`、`26`、`飞天`
+  - 排除：`生肖`、`礼盒`、`年份酒`、`整箱`
+- 价格口径：默认 `散瓶/单瓶口径`（`--price-caliber` 可改）
+- 同日多报价聚合：**中位数（median）**
+- 输出字段：`date, secondary_price, source, product, caliber, aggregation, quote_count`
+
+### 数据清洗与对齐规则
+
+- 去重：同日重复记录按中位数聚合
+- 空值：空值不参与聚合
+- 异常值提示：IQR 法（1.5×IQR）仅告警，不自动删除
+- 日期对齐（`--align-mode`）
+  - `inner`：仅保留双方都存在的日期
+  - `left`：保留酒价日期为主轴，股票可为空
+- 缺失值处理（`--fill-mode`）
+  - `none`：不填充，最终绘图前丢弃任一侧为空的日期
+  - `ffill`：按时间前向填充缺失值
+
+### 图表说明
+
+- 双轴图仅用于趋势对比，不代表绝对量级可比。
+- 两序列单位不同，重点观察拐点与方向，不直接比较绝对涨跌幅。
+- 另提供归一化图（首日=100）辅助比较阶段走势。
+
+### 限制与失效场景
+
+以下情况可能导致索引解析或正文抓取失败：
+- 出网受限（代理/防火墙）导致 403
+- 列表页为前端动态加载，首包不含文章清单
+- 列表响应不含可用 URL，且缺少可拼接 URL 的参数（`__biz/mid/idx/sn`）
+- 正文价格为图片/表格，文本正则难以直接提取
+
+失败时脚本会明确提示：是“索引页不可访问 / 索引无标题日期链接 / 缺URL参数 / 正文无可解析价格”中的哪一类。

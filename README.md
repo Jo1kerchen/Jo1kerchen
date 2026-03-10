@@ -112,13 +112,7 @@ curl http://127.0.0.1:8000/health
 ### 一键全流程
 
 ```bash
-python moutai_secondary_market_chart.py \
-  --fetch-stock \
-  --fetch-liquor \
-  --start 2025-01-01 \
-  --end 2026-03-01 \
-  --align-mode inner \
-  --fill-mode none
+python moutai_secondary_market_chart.py   --fetch-stock   --fetch-liquor   --history-index-url "https://mp.weixin.qq.com/mp/appmsgalbum?..."   --start 2025-01-01   --end 2026-03-01   --align-mode inner   --fill-mode none
 ```
 
 默认输出：
@@ -129,31 +123,46 @@ python moutai_secondary_market_chart.py \
 - 抓取原始记录（用于复核）
   - `data/stock_prices_auto_raw.csv`
   - `data/liquor_prices_auto_raw.csv`
+- **公众号历史文章索引清单**
+  - `data/liquor_article_index.csv`
 - 对齐后数据
   - `output/moutai_auto_aligned.csv`
-- 图表
+- 图表（入库保留 SVG）
   - `output/moutai_auto_dual.svg`
   - `output/moutai_auto_normalized.svg`
 
 > 说明：PNG 为本地运行时可选产物，已加入 `.gitignore`，不纳入仓库提交。
+
+### 抓取主入口（已改为历史列表页）
+
+酒价抓取不再以单篇文章页为入口，改为：
+
+- **主入口**：公众号历史文章列表页 / 相册索引页（`--history-index-url`）
+- 先提取文章索引（标题、日期、文章 URL 或跳转参数）
+- 再批量抓取正文并解析价格
+
+脚本会优先尝试从列表页响应中提取：
+1. 文章标题
+2. 文章日期
+3. 每篇文章 URL（若缺失则尝试保留 `__biz/mid/idx/sn` 跳转参数）
+
+若索引页无法提取 URL/参数，脚本会给出明确报错并说明缺失项，不要求手工逐篇点开。
 
 ### 抓取来源与口径
 
 1) **股票（自动抓取）**
 - 来源：Eastmoney K线接口（`secid=1.600519`）
 - 字段：日线 OHLCV 等（raw），并提取 `date, close` 用于对齐绘图
-- 失败处理：抛出明确错误（如 403、超时、空数据）并停止执行，不静默回退
+- 失败处理：抛出明确错误（如 403、超时、空数据）并停止执行
 
 2) **酒价（自动抓取）**
-- 默认来源页面：`https://www.jiuxiwang.cn/`（可用 `--liquor-source-url` 覆盖）
-- 商品名称匹配规则：
-  - 包含关键词：`茅台`、`26`、`飞天`
-  - 排除关键词：`生肖`、`礼盒`、`年份酒`、`整箱`
-- 价格口径：默认 `散瓶/单瓶口径`（可用 `--price-caliber` 自定义）
+- 来源：公众号历史文章列表页（如你提供的相册索引链接）
+- 商品匹配规则：
+  - 标题过滤：包含 `茅台`、`26`、`飞天`
+  - 排除：`生肖`、`礼盒`、`年份酒`、`整箱`
+- 价格口径：默认 `散瓶/单瓶口径`（`--price-caliber` 可改）
 - 同日多报价聚合：**中位数（median）**
 - 输出字段：`date, secondary_price, source, product, caliber, aggregation, quote_count`
-
-> 注意：若来源页面为 JS 动态加载、需要登录或触发反爬，可能抓不到记录并报错。详见“限制与失效场景”。
 
 ### 数据清洗与对齐规则
 
@@ -169,18 +178,16 @@ python moutai_secondary_market_chart.py \
 
 ### 图表说明
 
-- 双轴图用于趋势对比，不代表绝对量级可比。
-- 两序列单位不同（元 vs 元，但量级差异大），重点观察拐点和方向，不直接比较绝对涨跌幅。
+- 双轴图仅用于趋势对比，不代表绝对量级可比。
+- 两序列单位不同，重点观察拐点与方向，不直接比较绝对涨跌幅。
 - 另提供归一化图（首日=100）辅助比较阶段走势。
 
-### 限制与可能失效的数据源场景
+### 限制与失效场景
 
-以下情况可能导致 403/空结果/解析失败：
-- 出网受限（公司代理、云环境防火墙）
-- 目标站启用反爬（UA、频率、Cookie、Referer 校验）
-- 页面改为前端动态渲染，静态 HTML 不再包含价格/日期
-- DOM 结构变更导致正则匹配失败
+以下情况可能导致索引解析或正文抓取失败：
+- 出网受限（代理/防火墙）导致 403
+- 列表页为前端动态加载，首包不含文章清单
+- 列表响应不含可用 URL，且缺少可拼接 URL 的参数（`__biz/mid/idx/sn`）
+- 正文价格为图片/表格，文本正则难以直接提取
 
-发生失败时：
-- 股票抓取会直接给出错误原因并终止；
-- 酒价抓取会提示是“页面不可达/无匹配记录/日期区间为空”等具体原因。
+失败时脚本会明确提示：是“索引页不可访问 / 索引无标题日期链接 / 缺URL参数 / 正文无可解析价格”中的哪一类。

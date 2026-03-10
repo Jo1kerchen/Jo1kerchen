@@ -103,3 +103,84 @@ curl http://127.0.0.1:8000/health
 
 - 若运行环境访问目标站点受限（403/反爬），抓取结果可能为 `None`，接口仍可正常返回。
 - 需要更强稳定性时，建议增加代理池、重试、以及可授权数据源。
+
+---
+---
+
+## 6) 贵州茅台（26年飞天）二级市场价 + 600519 A股：全自动抓取与出图
+
+### 一键全流程
+
+```bash
+python moutai_secondary_market_chart.py \
+  --fetch-stock \
+  --fetch-liquor \
+  --start 2025-01-01 \
+  --end 2026-03-01 \
+  --align-mode inner \
+  --fill-mode none
+```
+
+默认输出：
+
+- 抓取结果（清洗后）
+  - `data/stock_prices_auto.csv`
+  - `data/liquor_prices_auto.csv`
+- 抓取原始记录（用于复核）
+  - `data/stock_prices_auto_raw.csv`
+  - `data/liquor_prices_auto_raw.csv`
+- 对齐后数据
+  - `output/moutai_auto_aligned.csv`
+- 图表
+  - `output/moutai_auto_dual.svg`
+  - `output/moutai_auto_normalized.svg`
+
+> 说明：PNG 为本地运行时可选产物，已加入 `.gitignore`，不纳入仓库提交。
+
+### 抓取来源与口径
+
+1) **股票（自动抓取）**
+- 来源：Eastmoney K线接口（`secid=1.600519`）
+- 字段：日线 OHLCV 等（raw），并提取 `date, close` 用于对齐绘图
+- 失败处理：抛出明确错误（如 403、超时、空数据）并停止执行，不静默回退
+
+2) **酒价（自动抓取）**
+- 默认来源页面：`https://www.jiuxiwang.cn/`（可用 `--liquor-source-url` 覆盖）
+- 商品名称匹配规则：
+  - 包含关键词：`茅台`、`26`、`飞天`
+  - 排除关键词：`生肖`、`礼盒`、`年份酒`、`整箱`
+- 价格口径：默认 `散瓶/单瓶口径`（可用 `--price-caliber` 自定义）
+- 同日多报价聚合：**中位数（median）**
+- 输出字段：`date, secondary_price, source, product, caliber, aggregation, quote_count`
+
+> 注意：若来源页面为 JS 动态加载、需要登录或触发反爬，可能抓不到记录并报错。详见“限制与失效场景”。
+
+### 数据清洗与对齐规则
+
+- 去重：同日重复记录按中位数聚合
+- 空值：空值不参与聚合
+- 异常值提示：IQR 法（1.5×IQR）仅告警，不自动删除
+- 日期对齐（`--align-mode`）
+  - `inner`：仅保留双方都存在的日期
+  - `left`：保留酒价日期为主轴，股票可为空
+- 缺失值处理（`--fill-mode`）
+  - `none`：不填充，最终绘图前丢弃任一侧为空的日期
+  - `ffill`：按时间前向填充缺失值
+
+### 图表说明
+
+- 双轴图用于趋势对比，不代表绝对量级可比。
+- 两序列单位不同（元 vs 元，但量级差异大），重点观察拐点和方向，不直接比较绝对涨跌幅。
+- 另提供归一化图（首日=100）辅助比较阶段走势。
+
+### 限制与可能失效的数据源场景
+
+以下情况可能导致 403/空结果/解析失败：
+- 出网受限（公司代理、云环境防火墙）
+- 目标站启用反爬（UA、频率、Cookie、Referer 校验）
+- 页面改为前端动态渲染，静态 HTML 不再包含价格/日期
+- DOM 结构变更导致正则匹配失败
+
+发生失败时：
+- 股票抓取会直接给出错误原因并终止；
+- 酒价抓取会提示是“页面不可达/无匹配记录/日期区间为空”等具体原因。

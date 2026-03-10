@@ -208,3 +208,17 @@ python moutai_secondary_market_chart.py \
 - 正文价格为图片/表格，文本正则难以直接提取
 
 失败时脚本会明确提示：是“索引页不可访问 / 索引无标题日期链接 / 缺URL参数 / 正文无可解析价格”中的哪一类。
+
+
+### 仅使用你提供的CSV出图（推荐）
+
+如果你已提供“53度飞天茅台二级市场价格 CSV”，可直接运行：
+
+```bash
+python moutai_secondary_market_chart.py   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/your_moutai_53_secondary.csv   --start 2018-01-01   --end 2026-12-31   --align-mode inner   --fill-mode none   --output-prefix output/moutai_53
+```
+
+说明：
+- 时间轴按天对齐，但以 A 股交易日为准（`inner`），A 股不开盘且酒价存在的日期会自动跳过。
+- 酒价列名支持：`secondary_price / liquor_price / market_price / price`
+- 股价列名支持：`close / stock_close / price`

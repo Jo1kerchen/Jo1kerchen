@@ -418,13 +418,35 @@ def fetch_liquor_prices_from_history_index(
             w.writerow([d, median(prices), history_index_url, product_name, caliber, "median", len(prices)])
 
 
+
+
+def _pick_existing_column(fieldnames: List[str], candidates: List[str], kind: str) -> str:
+    cols = set(fieldnames)
+    for c in candidates:
+        if c in cols:
+            return c
+    raise ValueError(f"{kind} CSV 缺少价格列，候选列: {candidates}，实际列: {fieldnames}")
+
+
+def filter_records_by_date(records: List[Record], start: str, end: str) -> List[Record]:
+    start_d = datetime.strptime(start, DATE_FMT)
+    end_d = datetime.strptime(end, DATE_FMT)
+    return [r for r in records if start_d <= r.date <= end_d]
+
 def load_series(csv_path: Path, value_col: str) -> List[Record]:
     out: List[Record] = []
     with csv_path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        fields = reader.fieldnames or []
+        if value_col == "secondary_price":
+            col = _pick_existing_column(fields, ["secondary_price", "liquor_price", "market_price", "price"], "酒价")
+        elif value_col == "close":
+            col = _pick_existing_column(fields, ["close", "stock_close", "price"], "A股")
+        else:
+            col = value_col
         for row in reader:
             d = datetime.strptime(row["date"], DATE_FMT)
-            raw = row.get(value_col, "")
+            raw = row.get(col, "")
             out.append(Record(d, float(raw) if raw not in ("", None) else None))
     return sorted(out, key=lambda x: x.date)
 
@@ -601,7 +623,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="全自动抓取贵州茅台酒价与A股并出图")
     p.add_argument("--fetch-stock", action="store_true")
     p.add_argument("--fetch-liquor", action="store_true", help="从公众号历史列表页批量构建文章清单并抓正文解析价格")
-    p.add_argument("--start", default="2025-01-01")
+    p.add_argument("--start", default="2018-01-01")
     p.add_argument("--end", default=datetime.now().strftime(DATE_FMT))
     p.add_argument("--stock-csv", type=Path, default=Path("data/stock_prices_auto.csv"))
     p.add_argument("--stock-raw-csv", type=Path, default=Path("data/stock_prices_auto_raw.csv"))
@@ -669,13 +691,15 @@ def main() -> None:
     if not args.liquor_csv.exists():
         raise FileNotFoundError(f"缺少酒价CSV: {args.liquor_csv}，请先 --fetch-liquor")
 
-    liquor = clean_series(load_series(args.liquor_csv, "secondary_price"), "酒价")
-    stock = clean_series(load_series(args.stock_csv, "close"), "A股")
+    liquor = clean_series(filter_records_by_date(load_series(args.liquor_csv, "secondary_price"), args.start, args.end), "酒价")
+    stock = clean_series(filter_records_by_date(load_series(args.stock_csv, "close"), args.start, args.end), "A股")
     merged = align_series(liquor, stock, args.align_mode, args.fill_mode)
     if args.fill_mode == "none":
         merged = [(d, l, s) for d, l, s in merged if l is not None and s is not None]
     if not merged:
-        raise ValueError("对齐后无数据，请检查对齐参数或抓取结果")
+        raise ValueError("对齐后无数据，请检查日期区间与CSV列名/数据")
+
+    print(f"[INFO] 对齐后有效交易日: {len(merged)}（A股休市日会自动跳过）")
 
     aligned_csv = Path(args.output_prefix + "_aligned.csv")
     save_aligned_csv(aligned_csv, merged)

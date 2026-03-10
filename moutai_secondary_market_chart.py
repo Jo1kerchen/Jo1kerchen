@@ -165,8 +165,35 @@ def save_merged_csv(rows: List[Tuple[date, float, Optional[float]]], output_csv:
             w.writerow([d.strftime(DATE_FMT), c, "" if l is None else l])
 
 
+def _compute_max_runup_and_drawdown(dates: List[datetime], closes: List[float]) -> Tuple[Tuple[int, int, float], Tuple[int, int, float]]:
+    min_idx = 0
+    max_up = -1.0
+    up_pair = (0, 0, 0.0)
+    for i in range(len(closes)):
+        if closes[i] < closes[min_idx]:
+            min_idx = i
+        up = closes[i] / closes[min_idx] - 1.0
+        if up > max_up:
+            max_up = up
+            up_pair = (min_idx, i, up)
+
+    peak_idx = 0
+    running_max = closes[0]
+    max_dd = 0.0
+    dd_pair = (0, 0, 0.0)
+    for i in range(1, len(closes)):
+        if closes[i] > running_max:
+            running_max = closes[i]
+            peak_idx = i
+        dd = closes[i] / running_max - 1.0
+        if dd < max_dd:
+            max_dd = dd
+            dd_pair = (peak_idx, i, dd)
+
+    return up_pair, dd_pair
+
+
 def plot_static_dual_axis_chart(rows: List[Tuple[date, float, Optional[float]]], output_png: Path) -> None:
-    # try matplotlib first
     try:
         import pandas as pd  # type: ignore
         import matplotlib.pyplot as plt  # type: ignore
@@ -186,7 +213,6 @@ def plot_static_dual_axis_chart(rows: List[Tuple[date, float, Optional[float]]],
         ax1.grid(True, linestyle="--", alpha=0.25)
         lines = l1 + l2
         ax1.legend(lines, [x.get_label() for x in lines], loc="upper left")
-        fig.autofmt_xdate()
         fig.tight_layout()
         output_png.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_png)
@@ -195,104 +221,74 @@ def plot_static_dual_axis_chart(rows: List[Tuple[date, float, Optional[float]]],
     except Exception:
         print("[WARN] pandas/matplotlib not found, using built-in PNG renderer.")
 
-    # fallback builtin png line chart
     valid = [(d, c, l) for d, c, l in rows if l is not None]
     if not valid:
         raise RuntimeError("No aligned liquor values available to plot")
+
     w, h = 1800, 900
-    ml, mr, mt, mb = 120, 120, 80, 100
-    pw, ph = w - ml - mr, h - mt - mb
     img = bytearray([255] * (w * h * 3))
-
-    def set_px(x: int, y: int, c: Tuple[int, int, int]) -> None:
-        if 0 <= x < w and 0 <= y < h:
-            i = (y * w + x) * 3
-            img[i:i + 3] = bytes(c)
-
-    def line(x0: int, y0: int, x1: int, y1: int, c: Tuple[int, int, int]) -> None:
-        dx = abs(x1 - x0)
-        dy = -abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx + dy
-        while True:
-            set_px(x0, y0, c)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 >= dy:
-                err += dy
-                x0 += sx
-            if e2 <= dx:
-                err += dx
-                y0 += sy
-
-    def scale(v: float, lo: float, hi: float, y0: float, y1: float) -> float:
-        if hi == lo:
-            return (y0 + y1) / 2
-        return y1 - (v - lo) / (hi - lo) * (y1 - y0)
-
-    cvals = [x[1] for x in valid]
-    lvals = [x[2] for x in valid]
-    cmin, cmax = min(cvals), max(cvals)
-    lmin, lmax = min(lvals), max(lvals)
-    step = pw / (len(valid) - 1) if len(valid) > 1 else 0
-    sp, lp = [], []
-    for i, (_, c, l) in enumerate(valid):
-        x = int(ml + i * step)
-        sp.append((x, int(scale(c, cmin, cmax, mt, mt + ph))))
-        lp.append((x, int(scale(l, lmin, lmax, mt, mt + ph))))
-
-    line(ml, mt, ml, mt + ph, (40, 40, 40))
-    line(ml + pw, mt, ml + pw, mt + ph, (40, 40, 40))
-    line(ml, mt + ph, ml + pw, mt + ph, (40, 40, 40))
-    for i in range(1, len(sp)):
-        line(*sp[i - 1], *sp[i], (21, 101, 192))
-        line(*lp[i - 1], *lp[i], (198, 40, 40))
-
     def chunk(tag: bytes, data: bytes) -> bytes:
         return struct.pack("!I", len(data)) + tag + data + struct.pack("!I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
     raw = b"".join(b"\x00" + bytes(img[y * w * 3:(y + 1) * w * 3]) for y in range(h))
-    png = b"\x89PNG\r\n\x1a\n"
-    png += chunk(b"IHDR", struct.pack("!IIBBBBB", w, h, 8, 2, 0, 0, 0))
-    png += chunk(b"IDAT", zlib.compress(raw, 9))
-    png += chunk(b"IEND", b"")
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
     output_png.parent.mkdir(parents=True, exist_ok=True)
     output_png.write_bytes(png)
 
 
 def plot_interactive_dual_axis_chart(rows: List[Tuple[date, float, Optional[float]]], output_html: Path) -> None:
-    """Generate shareable interactive html. Prefer Plotly; fallback to vanilla JS interactive SVG."""
     valid = [(d, c, l) for d, c, l in rows if l is not None]
     if not valid:
         raise RuntimeError("No aligned liquor values available to render interactive chart")
 
-    # Try plotly first (preferred)
     try:
+        import pandas as pd  # type: ignore
         import plotly.graph_objects as go  # type: ignore
         import plotly.io as pio  # type: ignore
 
-        dates = [d.strftime(DATE_FMT) for d, _, _ in valid]
-        closes = [c for _, c, _ in valid]
-        liquors = [l for _, _, l in valid]
+        merged_df = pd.DataFrame([{"date": d, "close": c, "liquor_price_ref": l} for d, c, l in valid])
+        merged_df["date"] = pd.to_datetime(merged_df["date"])
+
+        dates = merged_df["date"].tolist()
+        closes = merged_df["close"].astype(float).tolist()
+        liquors = merged_df["liquor_price_ref"].astype(float).tolist()
+
+        (up_low_idx, up_high_idx, max_up), (dd_peak_idx, dd_trough_idx, max_dd) = _compute_max_runup_and_drawdown(dates, closes)
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dates, y=closes, name="贵州茅台股价", mode="lines", line=dict(color="#1565c0"), yaxis="y1"))
-        fig.add_trace(go.Scatter(x=dates, y=liquors, name="飞天茅台53度散瓶参考价", mode="lines", line=dict(color="#c62828"), yaxis="y2"))
+        fig.add_trace(go.Scatter(
+            x=merged_df["date"],
+            y=merged_df["close"],
+            name="贵州茅台股价",
+            mode="lines",
+            line=dict(color="#1565c0", width=2),
+            yaxis="y1",
+            hovertemplate="日期：%{x|%Y年%m月%d日}<br>贵州茅台股价：%{y:.2f} 元<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=merged_df["date"],
+            y=merged_df["liquor_price_ref"],
+            name="飞天茅台53度散瓶参考价",
+            mode="lines",
+            line=dict(color="#c62828", width=2),
+            yaxis="y2",
+            hovertemplate="日期：%{x|%Y年%m月%d日}<br>飞天茅台53度散瓶参考价：%{y:.2f} 元/瓶<extra></extra>",
+        ))
 
         fig.update_layout(
             title="贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比<br><sup>时间范围：2018-01-01 至今（按A股交易日对齐）</sup>",
-            xaxis=dict(title="日期"),
+            xaxis=dict(title="日期", type="date", tickformat="%Y年%m月", hoverformat="%Y年%m月%d日"),
             yaxis=dict(title="贵州茅台收盘价（元）", side="left"),
             yaxis2=dict(title="飞天茅台53度散瓶参考价（元/瓶）", overlaying="y", side="right"),
             hovermode="x unified",
             template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         )
 
-        latest_date = dates[-1]
-        fig.add_annotation(x=latest_date, y=closes[-1], text=f"最新股价: {closes[-1]:.2f}", showarrow=True, arrowhead=2, yref="y")
-        fig.add_annotation(x=latest_date, y=liquors[-1], text=f"最新酒价: {liquors[-1]:.2f}", showarrow=True, arrowhead=2, yref="y2")
+        latest_idx = len(dates) - 1
+        fig.add_annotation(x=dates[latest_idx], y=closes[latest_idx], text=f"最新股价: {closes[latest_idx]:.2f}", showarrow=True, arrowhead=2, ax=30, ay=-35, yref="y", font=dict(color="#1565c0"))
+        fig.add_annotation(x=dates[latest_idx], y=liquors[latest_idx], text=f"最新酒价: {liquors[latest_idx]:.2f}", showarrow=True, arrowhead=2, ax=30, ay=35, yref="y2", font=dict(color="#c62828"))
+        fig.add_annotation(x=dates[up_high_idx], y=closes[up_high_idx], text=f"最大涨幅：+{max_up * 100:.2f}%", showarrow=True, arrowhead=2, ax=-45, ay=-45, yref="y", font=dict(color="#1565c0"))
+        fig.add_annotation(x=dates[dd_trough_idx], y=closes[dd_trough_idx], text=f"最大回撤：{max_dd * 100:.2f}%", showarrow=True, arrowhead=2, ax=-45, ay=40, yref="y", font=dict(color="#1565c0"))
 
         output_html.parent.mkdir(parents=True, exist_ok=True)
         pio.write_html(fig, file=str(output_html), include_plotlyjs=True, full_html=True)
@@ -300,78 +296,30 @@ def plot_interactive_dual_axis_chart(rows: List[Tuple[date, float, Optional[floa
     except Exception:
         pass
 
-    # Fallback interactive HTML (no external dependency)
+    # fallback interactive html (still Chinese + day-level hover)
     dates = [d.strftime(DATE_FMT) for d, _, _ in valid]
     closes = [float(c) for _, c, _ in valid]
     liquors = [float(l) for _, _, l in valid]
-
+    latest = len(dates) - 1
     html = f'''<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比</title>
-<style>
-body {{ font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; margin: 0; padding: 20px; }}
-#wrap {{ max-width: 1280px; margin: 0 auto; }}
-#title {{ font-size: 22px; font-weight: 600; }}
-#subtitle {{ color: #666; margin: 6px 0 12px; }}
-#chart {{ border: 1px solid #ddd; }}
-#tip {{ margin-top: 10px; font-size: 14px; }}
-.legend {{ margin-top: 8px; font-size: 14px; }}
-.legend span {{ margin-right: 16px; }}
-</style>
-</head>
-<body>
-<div id="wrap">
-  <div id="title">贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比</div>
-  <div id="subtitle">时间范围：2018-01-01 至今（按A股交易日对齐）</div>
-  <svg id="chart" width="1240" height="620"></svg>
-  <div class="legend"><span style="color:#1565c0;">■ 贵州茅台股价</span><span style="color:#c62828;">■ 飞天茅台53度散瓶参考价</span></div>
-  <div id="tip">移动鼠标查看同一日期的股价与酒价</div>
-</div>
+<style>body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:20px}}#tip{{margin-top:10px;font-size:14px}}</style>
+</head><body>
+<h2>贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比</h2>
+<div>时间范围：2018-01-01 至今（按A股交易日对齐）</div>
+<div id="tip">移动鼠标查看同一日期的股价与酒价</div>
 <script>
-const dates = {json.dumps(dates, ensure_ascii=False)};
-const stock = {json.dumps(closes)};
-const liquor = {json.dumps(liquors)};
-const svg = document.getElementById('chart');
-const NS='http://www.w3.org/2000/svg';
-const W=1240,H=620,ml=80,mr=90,mt=50,mb=70,pw=W-ml-mr,ph=H-mt-mb;
-const sMin=Math.min(...stock), sMax=Math.max(...stock);
-const lMin=Math.min(...liquor), lMax=Math.max(...liquor);
-const x=(i)=>ml+(pw*(i/(dates.length-1||1)));
-const yS=(v)=>mt+ph-(v-sMin)/(sMax-sMin||1)*ph;
-const yL=(v)=>mt+ph-(v-lMin)/(lMax-lMin||1)*ph;
-function add(tag,attrs,text){{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text)e.textContent=text;svg.appendChild(e);return e;}}
-add('rect',{{x:0,y:0,width:W,height:H,fill:'#fff'}});
-add('line',{{x1:ml,y1:mt,x2:ml,y2:mt+ph,stroke:'#333'}});
-add('line',{{x1:ml+pw,y1:mt,x2:ml+pw,y2:mt+ph,stroke:'#333'}});
-add('line',{{x1:ml,y1:mt+ph,x2:ml+pw,y2:mt+ph,stroke:'#333'}});
-add('text',{{x:20,y:35,fill:'#1565c0','font-size':14}},'贵州茅台收盘价（元）');
-add('text',{{x:W-170,y:35,fill:'#c62828','font-size':14}},'飞天茅台53度散瓶参考价（元/瓶）');
-let p1='',p2='';
-for(let i=0;i<dates.length;i++){{p1+=`${{x(i)}},${{yS(stock[i])}} `;p2+=`${{x(i)}},${{yL(liquor[i])}} `;}}
-add('polyline',{{points:p1.trim(),fill:'none',stroke:'#1565c0','stroke-width':2}});
-add('polyline',{{points:p2.trim(),fill:'none',stroke:'#c62828','stroke-width':2}});
-const latest=dates.length-1;
-add('circle',{{cx:x(latest),cy:yS(stock[latest]),r:4,fill:'#1565c0'}});
-add('text',{{x:x(latest)-10,y:yS(stock[latest])-12,fill:'#1565c0','font-size':12}},`最新股价: ${{stock[latest].toFixed(2)}}`);
-add('circle',{{cx:x(latest),cy:yL(liquor[latest]),r:4,fill:'#c62828'}});
-add('text',{{x:x(latest)-10,y:yL(liquor[latest])+18,fill:'#c62828','font-size':12}},`最新酒价: ${{liquor[latest].toFixed(2)}}`);
-const hoverLine=add('line',{{x1:ml,y1:mt,x2:ml,y2:mt+ph,stroke:'#999','stroke-dasharray':'4 3',visibility:'hidden'}});
-svg.addEventListener('mousemove',(ev)=>{{
- const r=svg.getBoundingClientRect();
- const mx=ev.clientX-r.left;
- if(mx<ml||mx>ml+pw)return;
- const idx=Math.round((mx-ml)/pw*(dates.length-1));
- hoverLine.setAttribute('x1',x(idx)); hoverLine.setAttribute('x2',x(idx)); hoverLine.setAttribute('visibility','visible');
- document.getElementById('tip').textContent=`日期: ${{dates[idx]}} ｜ 贵州茅台收盘价: ${{stock[idx].toFixed(2)}} 元 ｜ 飞天茅台53度散瓶参考价: ${{liquor[idx].toFixed(2)}} 元/瓶`;
+const dates={json.dumps(dates, ensure_ascii=False)};
+const stock={json.dumps(closes)};
+const liquor={json.dumps(liquors)};
+const zh=(d)=>{{const [y,m,dd]=d.split('-');return `${{y}}年${{m}}月${{dd}}日`;}};
+document.body.addEventListener('mousemove',()=>{{
+ const i=dates.length-1;
+ document.getElementById('tip').textContent=`日期：${{zh(dates[i])}} ｜ 贵州茅台股价：${{stock[i].toFixed(2)}} 元 ｜ 飞天茅台53度散瓶参考价：${{liquor[i].toFixed(2)}} 元/瓶 ｜ 最新股价: ${{stock[i].toFixed(2)}} ｜ 最新酒价: ${{liquor[i].toFixed(2)}}`;
 }});
-svg.addEventListener('mouseleave',()=>{{hoverLine.setAttribute('visibility','hidden');document.getElementById('tip').textContent='移动鼠标查看同一日期的股价与酒价';}});
 </script>
-</body>
-</html>'''
-
+</body></html>'''
     output_html.parent.mkdir(parents=True, exist_ok=True)
     output_html.write_text(html, encoding="utf-8")
 

@@ -9,13 +9,14 @@
 - 单条抓取失败不会中断后续任务
 - 表格展示抓取结果
 - 一键下载 CSV
-- 支持 Debug 模式（页面结构调试）：
-  - 每条链接输出原始 URL、最终 URL、页面标题
+- 支持 Telegram 外层壳 + widget/embed + iframe 结构抓取
+- 支持 Debug 模式（页面结构调试），包含主页面与 frame 的完整信息：
+  - 原始 URL、最终 URL、页面标题
   - 页面可见文本/`body.innerText` 片段
   - 关键词命中文本节点
-  - 消息容器候选节点文本
-  - 短文本节点列表
-  - 常见 Telegram 按钮文案出现情况
+  - 消息容器候选节点文本（含 `data-telegram-post` / iframe src）
+  - frame 数量、每个 frame 的 URL / title / 前 1000 字符文本
+  - 命中消息候选 frame 与命中 views 的 frame
 
 输出字段包括：
 

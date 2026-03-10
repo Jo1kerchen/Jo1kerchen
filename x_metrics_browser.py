@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch X/Twitter post metrics by reading the web page with Playwright."""
+"""Local X/Twitter metrics scraper with Playwright (no API token needed)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from playwright.sync_api import BrowserContext
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-STATUS_URL_RE = re.compile(r"https?://(?:www\.)?(?:x|twitter)\.com/[^/]+/(?:status|statuses)/(\d+)")
-COUNT_RE = re.compile(r"([0-9][0-9,\.]*\s*[KMB]?)", re.IGNORECASE)
+STATUS_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:x|twitter)\.com/[^/]+/(?:status|statuses)/(\d+)",
+    re.IGNORECASE,
+)
+RAW_NUMBER_RE = re.compile(r"(\d[\d,.]*\s*[KMBkmb]?)")
 
 
 class XBrowserMetricsError(Exception):
@@ -32,121 +37,238 @@ class Metrics:
     views: str = "N/A"
 
 
+@dataclass
+class ScrapeContext:
+    page: Page
+    timeout_ms: int
+
+
+def log(message: str) -> None:
+    print(f"[INFO] {message}")
+
+
+def warn(message: str) -> None:
+    print(f"[WARN] {message}")
+
+
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    return re.sub(r"https?://(?:www\.)?twitter\.com", "https://x.com", url, flags=re.IGNORECASE)
+
+
 def extract_tweet_id(url: str) -> str:
-    match = STATUS_URL_RE.search(url.strip())
+    match = STATUS_URL_RE.search(url)
     if not match:
         raise XBrowserMetricsError(
-            "Invalid X/Twitter status URL. Example: https://x.com/<user>/status/<tweet_id>"
+            "无效链接：请提供 x.com/twitter.com 的状态页链接，例如 https://x.com/<user>/status/<id>"
         )
     return match.group(1)
 
 
-def normalize_url(url: str) -> str:
-    return re.sub(r"https?://(?:www\.)?twitter\.com", "https://x.com", url.strip())
+def normalize_count(raw: str) -> Optional[str]:
+    if not raw:
+        return None
+    cleaned = raw.strip().replace(" ", "").replace(",", "")
+    m = re.match(r"^(\d+(?:\.\d+)?)([KMBkmb]?)$", cleaned)
+    if not m:
+        return None
+
+    base = float(m.group(1))
+    suffix = m.group(2).upper()
+    multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[suffix]
+    value = int(base * multiplier)
+    return str(value)
 
 
-def maybe_wait_for_manual_login(page, timeout_s: int) -> None:
-    page.wait_for_timeout(1500)
-    login_indicators = [
-        "text=Sign in",
-        "text=Log in",
-        "input[name='text']",
-        "input[autocomplete='username']",
-    ]
-    needs_login = any(page.locator(selector).first.count() > 0 for selector in login_indicators)
-
-    if needs_login:
-        print("\n[提示] 检测到可能需要登录 X。请在打开的浏览器窗口中完成登录。")
-        print("[提示] 登录完成并能看到帖子详情页后，在终端按回车继续...\n")
-        input()
-        try:
-            page.wait_for_load_state("domcontentloaded", timeout=timeout_s * 1000)
-        except PlaywrightTimeoutError:
-            pass
-
-
-def wait_for_post_ready(page, timeout_s: int) -> None:
-    page.wait_for_load_state("domcontentloaded", timeout=timeout_s * 1000)
-    page.wait_for_timeout(1200)
-
-    if page.locator("article[data-testid='tweet']").count() == 0:
-        # retry once for slower rendering
-        page.wait_for_timeout(2000)
-
-    if page.locator("article[data-testid='tweet']").count() == 0:
-        raise XBrowserMetricsError("未找到帖子内容（article[data-testid='tweet']）。请确认链接有效且页面可访问。")
-
-
-def first_group(text: str) -> Optional[str]:
+def first_count_from_text(text: str) -> Optional[str]:
     if not text:
         return None
-    m = COUNT_RE.search(text.replace("\n", " "))
-    return m.group(1).strip() if m else None
+    m = RAW_NUMBER_RE.search(text.replace("\n", " "))
+    if not m:
+        return None
+    return normalize_count(m.group(1))
 
 
-def count_from_aria(page, testid_candidates: list[str], keyword: str) -> str:
-    for testid in testid_candidates:
-        button = page.locator(f"[data-testid='{testid}']").first
-        if button.count() == 0:
+def ensure_post_loaded(ctx: ScrapeContext) -> None:
+    page = ctx.page
+    page.wait_for_load_state("domcontentloaded", timeout=ctx.timeout_ms)
+    page.wait_for_timeout(1200)
+
+    selectors = [
+        "article[data-testid='tweet']",
+        "div[data-testid='primaryColumn'] article",
+        "main article",
+    ]
+
+    for _ in range(4):
+        if any(page.locator(sel).count() > 0 for sel in selectors):
+            return
+        page.wait_for_timeout(1000)
+
+    raise XBrowserMetricsError("页面未加载出推文内容（article）。请确认链接有效、网络可用或已登录。")
+
+
+def needs_login(page: Page) -> bool:
+    login_selectors = [
+        "input[autocomplete='username']",
+        "input[name='text']",
+        "text=Sign in",
+        "text=Log in",
+        "text=登录",
+        "text=登入",
+    ]
+    return any(page.locator(sel).first.count() > 0 for sel in login_selectors)
+
+
+def wait_for_manual_login_if_needed(ctx: ScrapeContext, tweet_url: str) -> None:
+    page = ctx.page
+    log("检测登录状态")
+    page.wait_for_timeout(1200)
+
+    if not needs_login(page):
+        log("检测到已登录或可直接访问帖子")
+        return
+
+    print("\n[提示] 当前可能未登录 X/Twitter。")
+    print("[提示] 请在浏览器中手动登录，登录完成并能看到帖子详情页后，在终端按回车继续...\n")
+    input()
+
+    # 用户登录后，强制回到目标帖页再抓取
+    log("登录回车已收到，重新打开目标帖子页面")
+    page.goto(tweet_url, wait_until="domcontentloaded", timeout=ctx.timeout_ms)
+
+
+def open_url(ctx: ScrapeContext, url: str, title: str) -> None:
+    log(f"正在打开页面（{title}）: {url}")
+    ctx.page.goto(url, wait_until="domcontentloaded", timeout=ctx.timeout_ms)
+    ensure_post_loaded(ctx)
+    log(f"页面加载完成（{title}）")
+
+
+def try_extract_from_locator_text(locator) -> Optional[str]:
+    try:
+        if locator.count() == 0:
+            return None
+        text = locator.first.inner_text().strip()
+        return first_count_from_text(text)
+    except PlaywrightError:
+        return None
+
+
+def try_extract_from_aria(page: Page, testids: list[str], keywords: list[str]) -> Optional[str]:
+    for testid in testids:
+        locator = page.locator(f"[data-testid='{testid}']")
+        if locator.count() == 0:
             continue
-
-        aria_label = button.get_attribute("aria-label") or ""
-        if aria_label and keyword.lower() in aria_label.lower():
-            value = first_group(aria_label)
+        try:
+            aria = locator.first.get_attribute("aria-label") or ""
+            if aria:
+                low = aria.lower()
+                if any(k in low for k in keywords):
+                    value = first_count_from_text(aria)
+                    if value:
+                        return value
+            text_value = locator.first.inner_text().strip()
+            value = first_count_from_text(text_value)
             if value:
                 return value
+        except PlaywrightError:
+            continue
+    return None
 
-        txt = button.inner_text().strip()
-        value = first_group(txt)
+
+def extract_metric(page: Page, *, testids: list[str], keywords: list[str], text_patterns: list[str]) -> str:
+    value = try_extract_from_aria(page, testids, keywords)
+    if value:
+        return value
+
+    for pattern in text_patterns:
+        locator = page.locator(f"span:has-text('{pattern}')")
+        value = try_extract_from_locator_text(locator)
         if value:
             return value
+        # 某些页面数字在父节点
+        if locator.count() > 0:
+            try:
+                raw = locator.first.evaluate("el => (el.parentElement && el.parentElement.innerText) || el.innerText")
+                value = first_count_from_text(raw or "")
+                if value:
+                    return value
+            except PlaywrightError:
+                pass
+
     return "N/A"
 
 
-def quote_count_from_page(page) -> str:
-    quote_link = page.locator("a[href*='/retweets/with_comments']").first
-    if quote_link.count() > 0:
-        text = quote_link.inner_text().strip()
-        value = first_group(text)
-        if value:
-            return value
+def extract_quotes(page: Page) -> str:
+    link = page.locator("a[href*='/retweets/with_comments']")
+    value = try_extract_from_locator_text(link)
+    if value:
+        return value
 
-    candidates = page.locator("span:has-text('Quote'), span:has-text('Quotes')")
-    if candidates.count() > 0:
-        text = candidates.first.evaluate("el => el.parentElement ? el.parentElement.innerText : el.innerText")
-        value = first_group(text or "")
-        if value:
-            return value
-
-    return "N/A"
-
-
-def collect_metrics(page) -> Metrics:
-    return Metrics(
-        likes=count_from_aria(page, ["like", "unlike"], "like"),
-        replies=count_from_aria(page, ["reply"], "repl"),
-        reposts=count_from_aria(page, ["retweet", "unretweet"], "repost"),
-        quotes=quote_count_from_page(page),
-        views=count_from_aria(page, ["analytics"], "view"),
+    return extract_metric(
+        page,
+        testids=["retweet", "unretweet"],
+        keywords=["quote", "引用", "引用推文"],
+        text_patterns=["Quote", "Quotes", "引用", "引用推文"],
     )
 
 
-def detect_repost_and_original(page, current_tweet_id: str) -> tuple[bool, Optional[str]]:
+def collect_metrics(ctx: ScrapeContext) -> Metrics:
+    page = ctx.page
+    return Metrics(
+        likes=extract_metric(
+            page,
+            testids=["like", "unlike"],
+            keywords=["like", "喜欢", "赞"],
+            text_patterns=["Like", "Likes", "喜欢", "赞"],
+        ),
+        replies=extract_metric(
+            page,
+            testids=["reply"],
+            keywords=["repl", "回复", "回覆", "评论", "評論"],
+            text_patterns=["Reply", "Replies", "回复", "回覆", "评论", "評論"],
+        ),
+        reposts=extract_metric(
+            page,
+            testids=["retweet", "unretweet"],
+            keywords=["repost", "retweet", "转发", "轉發"],
+            text_patterns=["Repost", "Reposts", "Retweet", "Retweets", "转发", "轉發"],
+        ),
+        quotes=extract_quotes(page),
+        views=extract_metric(
+            page,
+            testids=["analytics"],
+            keywords=["view", "views", "浏览", "瀏覽", "次查看"],
+            text_patterns=["View", "Views", "浏览", "瀏覽", "次查看"],
+        ),
+    )
+
+
+def detect_repost_and_original(page: Page, current_tweet_id: str) -> tuple[bool, Optional[str]]:
     article = page.locator("article[data-testid='tweet']").first
     if article.count() == 0:
         return False, None
 
     is_repost = False
-    text_blob = article.inner_text().lower()
-    if "reposted" in text_blob or "retweet" in text_blob:
-        is_repost = True
+    try:
+        blob = article.inner_text().lower()
+        if any(k in blob for k in ["reposted", "retweet", "转推", "轉推", "已转发", "已轉發"]):
+            is_repost = True
+    except PlaywrightError:
+        pass
 
-    hrefs = article.evaluate_all(
-        "els => els.flatMap(el => Array.from(el.querySelectorAll('a[href*="/status/"]')).map(a => a.href))"
-    )
-    ids = []
+    # 从当前帖容器里抓取 status 链接 ID
+    try:
+        hrefs = article.evaluate_all(
+            "els => els.flatMap(el => Array.from(el.querySelectorAll('a[href*=\"/status/\"]')).map(a => a.href))"
+        )
+    except PlaywrightError:
+        hrefs = []
+
+    ids: list[str] = []
     for href in hrefs:
-        m = STATUS_URL_RE.search(href)
+        m = STATUS_URL_RE.search(str(href))
         if m:
             ids.append(m.group(1))
 
@@ -157,71 +279,98 @@ def detect_repost_and_original(page, current_tweet_id: str) -> tuple[bool, Optio
     return is_repost, None
 
 
-def print_block(title: str, tweet_id: str, m: Metrics) -> None:
-    print(f"{title}:")
+def print_metrics_block(title: str, tweet_id: str, metrics: Metrics) -> None:
+    print(f"\n{title}:")
     print(f"  Tweet ID: {tweet_id}")
-    print(f"  Likes: {m.likes}")
-    print(f"  Replies: {m.replies}")
-    print(f"  Reposts: {m.reposts}")
-    print(f"  Quotes: {m.quotes}")
-    print(f"  Views: {m.views}")
+    print(f"  Likes: {metrics.likes}")
+    print(f"  Replies: {metrics.replies}")
+    print(f"  Reposts: {metrics.reposts}")
+    print(f"  Quotes: {metrics.quotes}")
+    print(f"  Views: {metrics.views}")
 
 
-def run(url: str, user_data_dir: Path, headless: bool, timeout_s: int) -> int:
+def wait_before_close(page: Page, keep_open: bool, failed: bool) -> None:
+    if keep_open:
+        print("\n[调试] 浏览器将保持打开，按回车后关闭...")
+        try:
+            input()
+        except EOFError:
+            pass
+        return
+
+    if failed and not page.context.browser.is_connected():
+        return
+
+    if failed:
+        print("\n[调试] 本次执行失败。浏览器将在 8 秒后关闭，便于查看页面状态。")
+        page.wait_for_timeout(8000)
+
+
+def run(url: str, user_data_dir: Path, headless: bool, timeout_s: int, keep_open: bool) -> int:
     input_url = normalize_url(url)
-    current_tweet_id = extract_tweet_id(input_url)
+    tweet_id = extract_tweet_id(input_url)
+    timeout_ms = max(timeout_s, 5) * 1000
     user_data_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(user_data_dir),
-                headless=headless,
-                viewport={"width": 1440, "height": 900},
-            )
-            page = context.pages[0] if context.pages else context.new_page()
+    failed = False
 
-            try:
-                page.goto(input_url, wait_until="domcontentloaded", timeout=timeout_s * 1000)
-                maybe_wait_for_manual_login(page, timeout_s)
-                wait_for_post_ready(page, timeout_s)
+    log("正在启动浏览器（持久化上下文）")
+    with sync_playwright() as p:
+        context: BrowserContext = p.chromium.launch_persistent_context(
+            user_data_dir=str(user_data_dir),
+            headless=headless,
+            viewport={"width": 1400, "height": 900},
+        )
+        page = context.pages[0] if context.pages else context.new_page()
+        ctx = ScrapeContext(page=page, timeout_ms=timeout_ms)
 
-                current_metrics = collect_metrics(page)
-                is_repost, original_tweet_id = detect_repost_and_original(page, current_tweet_id)
+        try:
+            open_url(ctx, input_url, "current post")
+            wait_for_manual_login_if_needed(ctx, input_url)
+            ensure_post_loaded(ctx)
 
-                print(f"Input URL: {url}")
-                print(f"Tweet ID: {current_tweet_id}")
-                print(f"Is repost: {'Yes' if is_repost else 'No'}")
-                print_block("Current post metrics", current_tweet_id, current_metrics)
+            log("正在提取 current post metrics")
+            current = collect_metrics(ctx)
+            is_repost, original_id = detect_repost_and_original(page, tweet_id)
 
-                if is_repost and original_tweet_id:
-                    original_url = f"https://x.com/i/status/{original_tweet_id}"
-                    page.goto(original_url, wait_until="domcontentloaded", timeout=timeout_s * 1000)
-                    wait_for_post_ready(page, timeout_s)
-                    original_metrics = collect_metrics(page)
-                    print_block("Original post metrics", original_tweet_id, original_metrics)
-                elif is_repost:
-                    print("Original post metrics: N/A (未成功识别原帖 ID)")
+            print(f"\nInput URL: {url}")
+            print(f"Tweet ID: {tweet_id}")
+            print(f"Is repost: {'Yes' if is_repost else 'No'}")
+            print_metrics_block("Current post metrics", tweet_id, current)
 
-            finally:
-                # Give disk state a tiny moment to flush if user just logged in.
-                time.sleep(0.5)
-                context.close()
+            if is_repost and original_id:
+                log(f"检测到 repost，正在提取 original post metrics（ID: {original_id}）")
+                original_url = f"https://x.com/i/status/{original_id}"
+                open_url(ctx, original_url, "original post")
+                original = collect_metrics(ctx)
+                print_metrics_block("Original post metrics", original_id, original)
+            elif is_repost:
+                warn("检测到 repost，但未识别出 original post ID")
+                print("\nOriginal post metrics: N/A (未成功识别 original post ID)")
 
-    except XBrowserMetricsError as exc:
-        print(f"Error: {exc}")
-        return 1
-    except (PlaywrightTimeoutError, PlaywrightError) as exc:
-        print(f"Error: Playwright failure - {exc}")
-        return 1
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-        return 1
-    except Exception as exc:  # noqa: BLE001
-        print(f"Error: Unexpected failure - {exc}")
-        return 1
+            log("抓取成功")
+            return 0
 
-    return 0
+        except XBrowserMetricsError as exc:
+            failed = True
+            print(f"Error: {exc}")
+            return 1
+        except (PlaywrightTimeoutError, PlaywrightError) as exc:
+            failed = True
+            print(f"Error: Playwright failure - {exc}")
+            return 1
+        except KeyboardInterrupt:
+            failed = True
+            print("\nInterrupted by user.")
+            return 1
+        except Exception as exc:  # noqa: BLE001
+            failed = True
+            print(f"Error: Unexpected failure - {exc}")
+            return 1
+        finally:
+            wait_before_close(page, keep_open=keep_open, failed=failed)
+            time.sleep(0.5)
+            context.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -232,14 +381,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=".x_browser_profile",
         help="Persistent browser profile directory (default: .x_browser_profile)",
     )
-    parser.add_argument("--headless", action="store_true", help="Run headless (not recommended for first login)")
-    parser.add_argument("--timeout", type=int, default=30, help="Page timeout in seconds (default: 30)")
+    parser.add_argument("--headless", action="store_true", help="Run in headless mode")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=30,
+        help="Page timeout in seconds (default: 30)",
+    )
+    parser.add_argument(
+        "--keep-open",
+        action="store_true",
+        help="Keep browser open until pressing Enter (debug friendly)",
+    )
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    return run(args.url, Path(args.user_data_dir), args.headless, args.timeout)
+    return run(
+        url=args.url,
+        user_data_dir=Path(args.user_data_dir),
+        headless=args.headless,
+        timeout_s=args.timeout,
+        keep_open=args.keep_open,
+    )
 
 
 if __name__ == "__main__":

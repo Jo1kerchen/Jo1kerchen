@@ -30,7 +30,6 @@ class Metrics:
     likes: str = "N/A"
     replies: str = "N/A"
     reposts: str = "N/A"
-    quotes: str = "N/A"
     views: str = "N/A"
 
 
@@ -100,7 +99,6 @@ def wait_for_main_post(page: Page, timeout_ms: int) -> None:
 
 
 def dismiss_blocking_overlays(page: Page) -> None:
-    # Best effort only. Ignore failures.
     close_selectors = [
         "button[aria-label='Close']",
         "button[aria-label='关闭']",
@@ -183,52 +181,40 @@ def extract_metric(page: Page, *, testids: list[str], keywords: list[str], text_
     return "N/A"
 
 
-def extract_quotes(page: Page) -> str:
-    try:
-        quote_link = page.locator("a[href*='/retweets/with_comments']")
-        if quote_link.count() > 0:
-            value = first_count(quote_link.first.inner_text().strip())
-            if value:
-                return value
-    except PlaywrightError:
-        pass
+def collect_metrics(page: Page) -> Metrics:
+    log("Extracting Likes...")
+    likes = extract_metric(
+        page,
+        testids=["like", "unlike"],
+        keywords=["like", "喜欢", "喜歡", "赞", "讚"],
+        text_patterns=["Like", "Likes", "喜欢", "喜歡", "赞", "讚"],
+    )
 
-    return extract_metric(
+    log("Extracting Replies...")
+    replies = extract_metric(
+        page,
+        testids=["reply"],
+        keywords=["repl", "回复", "回覆", "评论", "評論"],
+        text_patterns=["Reply", "Replies", "回复", "回覆", "评论", "評論"],
+    )
+
+    log("Extracting Reposts...")
+    reposts = extract_metric(
         page,
         testids=["retweet", "unretweet"],
-        keywords=["quote", "引用"],
-        text_patterns=["Quote", "Quotes", "引用"],
+        keywords=["repost", "retweet", "转发", "轉發"],
+        text_patterns=["Repost", "Reposts", "Retweet", "Retweets", "转发", "轉發"],
     )
 
-
-def collect_metrics(page: Page) -> Metrics:
-    return Metrics(
-        likes=extract_metric(
-            page,
-            testids=["like", "unlike"],
-            keywords=["like", "喜欢", "喜歡", "赞", "讚"],
-            text_patterns=["Like", "Likes", "喜欢", "喜歡", "赞", "讚"],
-        ),
-        replies=extract_metric(
-            page,
-            testids=["reply"],
-            keywords=["repl", "回复", "回覆", "评论", "評論"],
-            text_patterns=["Reply", "Replies", "回复", "回覆", "评论", "評論"],
-        ),
-        reposts=extract_metric(
-            page,
-            testids=["retweet", "unretweet"],
-            keywords=["repost", "retweet", "转发", "轉發"],
-            text_patterns=["Repost", "Reposts", "Retweet", "Retweets", "转发", "轉發"],
-        ),
-        quotes=extract_quotes(page),
-        views=extract_metric(
-            page,
-            testids=["analytics"],
-            keywords=["view", "views", "浏览", "瀏覽", "查看"],
-            text_patterns=["View", "Views", "浏览", "瀏覽", "查看"],
-        ),
+    log("Extracting Views...")
+    views = extract_metric(
+        page,
+        testids=["analytics"],
+        keywords=["view", "views", "浏览", "瀏覽", "查看"],
+        text_patterns=["View", "Views", "浏览", "瀏覽", "查看"],
     )
+
+    return Metrics(likes=likes, replies=replies, reposts=reposts, views=views)
 
 
 def detect_repost_and_original(page: Page, current_tweet_id: str) -> tuple[bool, Optional[str]]:
@@ -262,8 +248,7 @@ def detect_repost_and_original(page: Page, current_tweet_id: str) -> tuple[bool,
 
 
 def has_any_metric(metrics: Metrics) -> bool:
-    values = [metrics.likes, metrics.replies, metrics.reposts, metrics.quotes, metrics.views]
-    return any(v != "N/A" for v in values)
+    return any(v != "N/A" for v in [metrics.likes, metrics.replies, metrics.reposts, metrics.views])
 
 
 def print_metrics_block(title: str, tweet_id: str, metrics: Metrics) -> None:
@@ -272,7 +257,6 @@ def print_metrics_block(title: str, tweet_id: str, metrics: Metrics) -> None:
     print(f"  Likes: {metrics.likes}")
     print(f"  Replies: {metrics.replies}")
     print(f"  Reposts: {metrics.reposts}")
-    print(f"  Quotes: {metrics.quotes}")
     print(f"  Views: {metrics.views}")
 
 

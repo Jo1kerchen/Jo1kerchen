@@ -4,7 +4,6 @@
 - Likes
 - Replies
 - Reposts
-- Quotes
 - Views
 
 > 不使用 X API，不需要 Bearer Token。  
@@ -84,7 +83,6 @@ Current post metrics:
   Likes: 10
   Replies: 2
   Reposts: 3
-  Quotes: 1
   Views: 205
 
 Original post metrics:
@@ -92,7 +90,6 @@ Original post metrics:
   Likes: 100
   Replies: 20
   Reposts: 30
-  Quotes: 10
   Views: 5000
 ```
 
@@ -108,6 +105,10 @@ Original post metrics:
 - `Page loaded`
 - `Extracting current post metrics...`
 - `Extracting original post metrics...`
+- `Extracting Likes...`
+- `Extracting Replies...`
+- `Extracting Reposts...`
+- `Extracting Views...`
 - `Extraction succeeded / failed`
 
 ## 常见失败原因

@@ -1,0 +1,24 @@
+<view class="page">
+  <view class="header">
+    <view class="title">贵州茅台股价与飞天茅台53度散瓶参考价</view>
+    <view class="sub">{{meta.subtitle}}</view>
+  </view>
+
+  <view class="legend-toggle">
+    <text class="legend-main">主线：股价 / 酒价</text>
+    <view class="ema-row">
+      <text class="chip {{emaVisible.ema20 ? 'on' : ''}}" data-key="ema20" bindtap="toggleEma">EMA20</text>
+      <text class="chip {{emaVisible.ema55 ? 'on' : ''}}" data-key="ema55" bindtap="toggleEma">EMA55</text>
+      <text class="chip {{emaVisible.ema100 ? 'on' : ''}}" data-key="ema100" bindtap="toggleEma">EMA100</text>
+      <text class="chip {{emaVisible.ema200 ? 'on' : ''}}" data-key="ema200" bindtap="toggleEma">EMA200</text>
+    </view>
+  </view>
+
+  <canvas id="chartCanvas" type="2d" class="chart" bindtouchstart="onTouch" bindtouchmove="onTouch" bindtouchend="onTouchEnd"></canvas>
+
+  <view class="tooltip" wx:if="{{tooltip.show}}">
+    <view>日期：{{tooltip.dateZh}}</view>
+    <view>贵州茅台股价：{{tooltip.close}} 元</view>
+    <view>飞天茅台53度散瓶参考价：{{tooltip.liquor}} 元/瓶</view>
+  </view>
+</view>

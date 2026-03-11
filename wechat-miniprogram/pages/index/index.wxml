@@ -6,6 +6,7 @@
 
   <view class="actions">
     <button type="primary" bindtap="refreshData" loading="{{loading}}">刷新数据</button>
+    <button bindtap="goChartPage" class="chart-btn">查看茅台双轴图</button>
   </view>
 
   <block wx:for="{{cities}}" wx:key="city">

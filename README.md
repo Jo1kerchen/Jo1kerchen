@@ -224,66 +224,36 @@ python moutai_secondary_market_chart.py   --stock-csv data/stock_prices_auto.csv
 - 股价列名支持：`close / stock_close / price`
 
 
-## 7) 读取CSV生成双轴图 + 交互HTML（53度飞天茅台散瓶 vs 贵州茅台股价）
+## 7) 粘贴CSV后网页直接出图（无需读取仓库酒价文件）
 
-默认运行：
-
-```bash
-python3 moutai_secondary_market_chart.py
-```
-
-或指定输入输出：
+运行命令：
 
 ```bash
-python3 moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-html output/moutai_stock_vs_liquor_interactive.html   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
+python3 moutai_secondary_market_chart.py --stock-csv data/moutai_a_share_daily.csv
 ```
 
-输出文件：
-- `output/moutai_stock_vs_liquor_interactive.html`（可分享交互版）
-- `output/moutai_stock_vs_liquor_merged.csv`（对齐结果）
-- `output/moutai_stock_vs_liquor_dual_axis.png`（静态图，保留）
+输出：
+- `output/moutai_stock_vs_liquor_interactive.html`
 
-如何打开 HTML：
-- 直接双击 `output/moutai_stock_vs_liquor_interactive.html`，或浏览器“打开文件”。
-- 无需启动 Flask/Django 等服务。
+打开 HTML 后：
+- 在 textarea 粘贴三列表头 CSV：`date,original_box_price,bulk_price`
+- 点击“加载并绘图”即完成前端解析+合并+绘图
+- 支持“清空数据”和“加载示例CSV”
 
-HTML 交互能力：
-- 鼠标移动显示同一日期下的：日期、贵州茅台收盘价、飞天茅台53度散瓶参考价。
-- Plotly 模式下使用 unified hover，日期精确到“年-月-日”。
-- 双轴折线同图展示（左轴股价，右轴酒价）。
-- 包含“最新股价”“最新酒价”“最大涨幅”“最大回撤”标签注释（Plotly模式）。
-- 中文日期格式：
-  - x轴刻度：`%Y年%m月`
-  - 悬停日期：`%Y年%m月%d日`
+页面说明：
+- 横轴以 A 股交易日为主（2018-01-01 至今）
+- 酒价数据按股票交易日 left join 并对 `bulk_price` / `original_box_price` 前向填充
+- 默认显示散装价，原装价 `legendonly` 可手动打开
+- 保留 EMA20/55/100/200 开关、中文日期、hover 到日、最大涨幅/最大回撤摘要、最新股价/最新散装价标签
 
-- 图例支持手动开关 EMA 均线：`EMA20 / EMA55 / EMA100 / EMA200`（默认 legendonly）。
-- 右上角固定摘要区显示：最大涨幅、最大回撤。
-- 默认不显示明显背景网格线，整体更简洁。
-- 交互图右轴包含两条酒价曲线：
-  - `飞天茅台53度当年散装参考价`（默认显示）
-  - `飞天茅台53度当年原装参考价`（默认隐藏，可点图例打开）
-- merged CSV 包含：`date, close, bulk_price, original_box_price, ema20, ema55, ema100, ema200`。
+示例 CSV：
 
-对齐规则：
-- 以 A 股交易日（贵州茅台收盘价）为主时间轴。
-- 酒价映射到交易日并做 forward fill（向前填充）。
-- A 股非交易日不会出现在横轴中。
-
-数据说明：
-- 酒价仅从 `data/moutai_prices_0311_clean.csv` 读取（列固定为 `date, original_box_price, bulk_price`）。
-- 不再支持旧 CSV/XLSX/mock 数据路径；若该 CSV 缺失或列名不匹配会直接报错。
-- 若股票 CSV 不存在，脚本会自动尝试 Eastmoney 抓取；抓取失败会明确报错。
-
-可选依赖（推荐，非必须）：
-- 若安装 `plotly`，脚本会优先输出 Plotly 交互HTML（unified hover + 双轴）。
-- 未安装 `plotly` 时，脚本会自动回退到内置原生JS交互HTML（仍可本地离线打开与悬停查看）。
-
-安装 plotly（可选）：
-
-```bash
-python3 -m pip install plotly
+```csv
+date,original_box_price,bulk_price
+2021-03-03,3350,3150
+2021-03-04,3350,3150
+2021-03-05,3330,3120
 ```
-
 
 ## 8) 微信小程序原生图表（非WebView）
 

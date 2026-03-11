@@ -265,31 +265,75 @@ function draw(merged) {{
   }}, {{responsive:true}});
 }}
 
-const errorEl = document.getElementById('error');
-const inputEl = document.getElementById('csvInput');
+document.addEventListener('DOMContentLoaded', () => {{
+  console.log('[moutai] page loaded');
 
-function showError(msg) {{ errorEl.textContent = msg || ''; }}
+  const errorEl = document.getElementById('error');
+  const inputEl = document.getElementById('csvInput');
+  const loadBtn = document.getElementById('loadBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sampleBtn = document.getElementById('sampleBtn');
 
-document.getElementById('sampleBtn').addEventListener('click', () => {{
-  inputEl.value = sampleCsv;
-  showError('');
-}});
-
-document.getElementById('clearBtn').addEventListener('click', () => {{
-  inputEl.value = '';
-  showError('');
-  Plotly.purge('chart');
-}});
-
-document.getElementById('loadBtn').addEventListener('click', () => {{
-  try {{
-    showError('');
-    const liquorRows = parseCsvText(inputEl.value);
-    const merged = mergeByStockDays(stock, liquorRows); // left join by stock days
-    draw(merged);
-  }} catch (e) {{
-    showError(String(e.message || e));
+  function showError(msg) {{
+    const t = msg || '';
+    if (errorEl) errorEl.textContent = t;
+    if (t) {{
+      console.error('[moutai] error =', t);
+    }}
   }}
+
+  if (!errorEl || !inputEl || !loadBtn || !clearBtn || !sampleBtn) {{
+    showError('页面初始化失败：按钮或输入框未找到（DOM元素缺失）。');
+    return;
+  }}
+
+  if (typeof Plotly === 'undefined') {{
+    showError('Plotly 未加载成功，请检查网络/CDN 后刷新页面。');
+    return;
+  }}
+
+  console.log('[moutai] button bound: loadBtn/clearBtn/sampleBtn');
+
+  sampleBtn.addEventListener('click', () => {{
+    try {{
+      console.log('[moutai] sample clicked');
+      inputEl.value = sampleCsv;
+      showError('');
+    }} catch (e) {{
+      showError(String(e && e.message ? e.message : e));
+    }}
+  }});
+
+  clearBtn.addEventListener('click', () => {{
+    try {{
+      console.log('[moutai] clear clicked');
+      inputEl.value = '';
+      showError('');
+      try {{ Plotly.purge('chart'); }} catch (_e) {{}}
+      const chartEl = document.getElementById('chart');
+      if (chartEl) chartEl.innerHTML = '';
+    }} catch (e) {{
+      showError(String(e && e.message ? e.message : e));
+    }}
+  }});
+
+  loadBtn.addEventListener('click', () => {{
+    try {{
+      console.log('[moutai] load clicked');
+      showError('');
+      if (!inputEl.value || !inputEl.value.trim()) {{
+        throw new Error('CSV 内容为空');
+      }}
+      const liquorRows = parseCsvText(inputEl.value);
+      console.log('[moutai] csv parsed rows =', liquorRows.length);
+      const merged = mergeByStockDays(stock, liquorRows);
+      draw(merged);
+      console.log('[moutai] plot rendered');
+    }} catch (e) {{
+      const msg = String(e && e.message ? e.message : e);
+      showError(msg);
+    }}
+  }});
 }});
 </script>
 </body>

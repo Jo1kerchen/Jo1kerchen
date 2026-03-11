@@ -106,12 +106,24 @@ def generate_interactive_html(stock_rows: list[dict], output_html: Path) -> None
     button.primary {{ background: #1565c0; border-color: #1565c0; color: #fff; }}
     #error {{ color: #b42318; font-size: 13px; min-height: 18px; margin-bottom: 8px; white-space: pre-wrap; }}
     #chart {{ width: 100%; height: 680px; }}
+    .scale-controls {{ margin: 8px 0 10px; display:flex; align-items:center; gap:8px; }}
+    #leftScaleMode {{ padding: 4px 8px; border-radius:6px; border:1px solid #d0d7de; }}
+    #scaleHint {{ color:#555; font-size:13px; }}
   </style>
 </head>
 <body>
   <h2>贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比</h2>
   <div class=\"sub\">时间范围：2018-01-01 至今（按A股交易日对齐）｜酒价数据来源：用户提供的批发参考价整理表（CSV）</div>
   <div class=\"note\">将包含 <code>date, original_box_price, bulk_price</code> 三列的 CSV 内容粘贴到下方后，点击“加载并绘图”。</div>
+
+  <div class=\"scale-controls\">
+    <label for=\"leftScaleMode\">左轴坐标：</label>
+    <select id=\"leftScaleMode\">
+      <option value=\"linear\" selected>线性</option>
+      <option value=\"log\">对数</option>
+    </select>
+    <span id=\"scaleHint\">当前坐标模式：线性</span>
+  </div>
 
   <textarea id=\"csvInput\" placeholder=\"请粘贴CSV，例如：\ndate,original_box_price,bulk_price\n2021-03-03,3350,3150\n2021-03-04,3350,3150\"></textarea>
   <div class=\"actions\">
@@ -211,7 +223,7 @@ function mergeByStockDays(stockRows, liquorRows) {{
   return merged;
 }}
 
-function draw(merged) {{
+function draw(merged, leftScaleMode) {{
   const dates = merged.map(x => x.date);
   const close = merged.map(x => x.close);
   const bulk = merged.map(x => x.bulk_price);
@@ -255,7 +267,7 @@ function draw(merged) {{
   Plotly.newPlot('chart', traces, {{
     title: '贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比<br><sup>时间范围：2018-01-01 至今（按A股交易日对齐）｜酒价数据来源：用户提供的批发参考价整理表（CSV）</sup>',
     xaxis: {{ title:'日期', type:'date', tickformat:'%Y年%m月', hoverformat:'%Y年%m月%d日', showgrid:false }},
-    yaxis: {{ title:'贵州茅台收盘价（元）', side:'left', showgrid:false }},
+    yaxis: {{ title:'贵州茅台收盘价（元）', side:'left', showgrid:false, type:(leftScaleMode === 'log' ? 'log' : 'linear') }},
     yaxis2: {{ title:'飞天茅台53度参考价（元/瓶）', overlaying:'y', side:'right', showgrid:false }},
     hovermode:'x unified',
     template:'plotly_white',
@@ -275,6 +287,11 @@ document.addEventListener('DOMContentLoaded', () => {{
   const loadBtn = document.getElementById('loadBtn');
   const clearBtn = document.getElementById('clearBtn');
   const sampleBtn = document.getElementById('sampleBtn');
+  const leftScaleModeEl = document.getElementById('leftScaleMode');
+  const scaleHintEl = document.getElementById('scaleHint');
+
+  let currentScaleMode = 'linear';
+  let lastMerged = null;
 
   function showError(msg) {{
     const t = msg || '';
@@ -284,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     }}
   }}
 
-  if (!errorEl || !inputEl || !loadBtn || !clearBtn || !sampleBtn) {{
+  if (!errorEl || !inputEl || !loadBtn || !clearBtn || !sampleBtn || !leftScaleModeEl || !scaleHintEl) {{
     showError('页面初始化失败：按钮或输入框未找到（DOM元素缺失）。');
     return;
   }}
@@ -295,6 +312,25 @@ document.addEventListener('DOMContentLoaded', () => {{
   }}
 
   console.log('[moutai] button bound: loadBtn/clearBtn/sampleBtn');
+
+  function applyScaleMode(mode) {{
+    currentScaleMode = (mode === 'log') ? 'log' : 'linear';
+    scaleHintEl.textContent = `当前坐标模式：${{currentScaleMode === 'log' ? '对数' : '线性'}}`;
+    console.log(`scale mode changed: ${{currentScaleMode}}`);
+  }}
+
+  leftScaleModeEl.addEventListener('change', () => {{
+    try {{
+      applyScaleMode(leftScaleModeEl.value);
+      if (lastMerged && lastMerged.length) {{
+        draw(lastMerged, currentScaleMode);
+      }}
+    }} catch (e) {{
+      showError(String(e && e.message ? e.message : e));
+    }}
+  }});
+
+  applyScaleMode(leftScaleModeEl.value);
 
   sampleBtn.addEventListener('click', () => {{
     try {{
@@ -314,6 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {{
       try {{ Plotly.purge('chart'); }} catch (_e) {{}}
       const chartEl = document.getElementById('chart');
       if (chartEl) chartEl.innerHTML = '';
+      lastMerged = null;
     }} catch (e) {{
       showError(String(e && e.message ? e.message : e));
     }}
@@ -329,7 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {{
       const liquorRows = parseCsvText(inputEl.value);
       console.log('[moutai] csv parsed rows =', liquorRows.length);
       const merged = mergeByStockDays(stock, liquorRows);
-      draw(merged);
+      lastMerged = merged;
+      draw(merged, currentScaleMode);
       console.log('[moutai] plot rendered');
     }} catch (e) {{
       const msg = String(e && e.message ? e.message : e);

@@ -45,19 +45,20 @@ def main() -> None:
     with in_csv.open('r', encoding='utf-8') as f:
         r = csv.DictReader(f)
         for row in r:
-            if not row.get('liquor_price_ref'):
+            if not row.get('bulk_price'):
                 continue
             rows.append({
                 'date': row['date'],
                 'close': float(row['close']),
-                'liquor_price_ref': float(row['liquor_price_ref'])
+                'bulk_price': float(row['bulk_price']),
+                'original_box_price': float(row['original_box_price']) if row.get('original_box_price') else None
             })
 
     if not rows:
         raise RuntimeError('No valid rows in merged csv')
 
     closes = [x['close'] for x in rows]
-    liquors = [x['liquor_price_ref'] for x in rows]
+    liquors = [x['bulk_price'] for x in rows]
     e20 = ema(closes, 20)
     e55 = ema(closes, 55)
     e100 = ema(closes, 100)

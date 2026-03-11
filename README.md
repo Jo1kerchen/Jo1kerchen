@@ -235,7 +235,7 @@ python3 moutai_secondary_market_chart.py
 或指定输入输出：
 
 ```bash
-python3 moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/moutai_liquor_prices.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-html output/moutai_stock_vs_liquor_interactive.html   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
+python3 moutai_secondary_market_chart.py   --start 2018-01-01   --end 2026-12-31   --stock-csv data/stock_prices_auto.csv   --liquor-csv data/moutai_prices_0311.csv   --output-png output/moutai_stock_vs_liquor_dual_axis.png   --output-html output/moutai_stock_vs_liquor_interactive.html   --output-merged-csv output/moutai_stock_vs_liquor_merged.csv
 ```
 
 输出文件：
@@ -259,6 +259,10 @@ HTML 交互能力：
 - 图例支持手动开关 EMA 均线：`EMA20 / EMA55 / EMA100 / EMA200`（默认 legendonly）。
 - 右上角固定摘要区显示：最大涨幅、最大回撤。
 - 默认不显示明显背景网格线，整体更简洁。
+- 交互图右轴包含两条酒价曲线：
+  - `飞天茅台53度当年散装参考价`（默认显示）
+  - `飞天茅台53度当年原装参考价`（默认隐藏，可点图例打开）
+- merged CSV 包含：`date, close, bulk_price, original_box_price, ema20, ema55, ema100, ema200`。
 
 对齐规则：
 - 以 A 股交易日（贵州茅台收盘价）为主时间轴。
@@ -266,8 +270,8 @@ HTML 交互能力：
 - A 股非交易日不会出现在横轴中。
 
 fallback 说明：
-- 若酒价 CSV 不存在，脚本会自动使用 demo/mock 序列，并打印：
-  - `Using demo/mock liquor price data because real liquor price data was not found.`
+- 默认从 `data/moutai_prices_0311.csv` 读取酒价（A列日期、B列原装、C列散装），并重命名为 `date / original_box_price / bulk_price`。
+- 仅当该文件不存在时，才会启用 demo/mock 回退并打印提示。
 - 若股票 CSV 不存在，脚本会自动尝试 Eastmoney 抓取；抓取失败会明确报错。
 
 可选依赖（推荐，非必须）：

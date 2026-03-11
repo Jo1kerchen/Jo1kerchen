@@ -125,6 +125,22 @@ def generate_interactive_html(stock_rows: list[dict], output_html: Path) -> None
     <span id=\"scaleHint\">当前坐标模式：线性</span>
   </div>
 
+  <div class="scale-controls">
+    <label for="cutoffDate">回溯截止日期：</label>
+    <input type="date" id="cutoffDate" />
+    <button id="applyBacktestBtn">应用回溯</button>
+    <button id="resetBacktestBtn">重置为全历史</button>
+    <button id="playBtn">播放</button>
+    <button id="pauseBtn">暂停</button>
+    <label for="playSpeed">速度：</label>
+    <select id="playSpeed">
+      <option value="700">慢速</option>
+      <option value="400" selected>中速</option>
+      <option value="180">快速</option>
+    </select>
+  </div>
+  <div id="rangeHint" class="sub" style="margin-bottom:8px;">当前查看范围：未加载数据</div>
+
   <textarea id=\"csvInput\" placeholder=\"请粘贴CSV，例如：\ndate,original_box_price,bulk_price\n2021-03-03,3350,3150\n2021-03-04,3350,3150\"></textarea>
   <div class=\"actions\">
     <button class=\"primary\" id=\"loadBtn\">加载并绘图</button>
@@ -141,17 +157,15 @@ const stock = {json.dumps(stock_rows, ensure_ascii=False)};
 const sampleCsv = {json.dumps(sample_csv, ensure_ascii=False)};
 
 function parseCsvText(text) {{
-  const lines = text.split('\\r').join('').split('\\n').map(s => s.trim()).filter(Boolean);
+  const lines = text.split(String.fromCharCode(13)).join('').split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean);
   if (lines.length < 2) throw new Error('CSV 内容为空或缺少数据行。');
   const headers = lines[0].split(',').map(x => x.trim());
   if (!headers.includes('date')) throw new Error('缺少 date 列');
   if (!headers.includes('bulk_price')) throw new Error('缺少 bulk_price 列');
   if (!headers.includes('original_box_price')) throw new Error('缺少 original_box_price 列');
-
   const idxDate = headers.indexOf('date');
   const idxOrig = headers.indexOf('original_box_price');
   const idxBulk = headers.indexOf('bulk_price');
-
   const map = new Map();
   for (let i = 1; i < lines.length; i++) {{
     const cols = lines[i].split(',').map(x => x.trim());
@@ -159,221 +173,66 @@ function parseCsvText(text) {{
     const dstr = cols[idxDate];
     const d = new Date(dstr + 'T00:00:00');
     if (!dstr || isNaN(d.getTime())) throw new Error(`日期格式错误（第 ${{i+1}} 行）`);
-
     const bstr = cols[idxBulk] ?? '';
     const ostr = cols[idxOrig] ?? '';
     const bulk = bstr === '' ? null : Number(bstr);
     const original = ostr === '' ? null : Number(ostr);
     if (bstr !== '' && Number.isNaN(bulk)) throw new Error(`bulk_price 数值解析失败（第 ${{i+1}} 行）`);
     if (ostr !== '' && Number.isNaN(original)) throw new Error(`original_box_price 数值解析失败（第 ${{i+1}} 行）`);
-
-    const key = dstr;
-    map.set(key, {{ date: key, bulk_price: bulk, original_box_price: original }}); // 同日保留最后一条
+    map.set(dstr, {{ date: dstr, bulk_price: bulk, original_box_price: original }});
   }}
-
   const rows = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) throw new Error('没有可用酒价数据。');
   return rows;
 }}
-
-function ema(values, span) {{
-  const alpha = 2 / (span + 1);
-  const out = [];
-  let prev = null;
-  for (const v of values) {{
-    prev = (prev === null) ? v : alpha * v + (1 - alpha) * prev;
-    out.push(prev);
-  }}
-  return out;
-}}
-
-function computeRunupAndDrawdown(closes) {{
-  let minv = closes[0], maxUp = -1;
-  let runMax = closes[0], maxDd = 0;
-  for (const c of closes) {{
-    if (c < minv) minv = c;
-    const up = c / minv - 1;
-    if (up > maxUp) maxUp = up;
-    if (c > runMax) runMax = c;
-    const dd = c / runMax - 1;
-    if (dd < maxDd) maxDd = dd;
-  }}
-  return {{ maxUp, maxDd }};
-}}
-
-function mergeByStockDays(stockRows, liquorRows) {{
-  let i = 0;
-  let lastBulk = null;
-  let lastOrig = null;
-  const merged = [];
-
-  for (const s of stockRows) {{
-    while (i < liquorRows.length && liquorRows[i].date <= s.date) {{
-      if (liquorRows[i].bulk_price !== null) lastBulk = liquorRows[i].bulk_price;
-      if (liquorRows[i].original_box_price !== null) lastOrig = liquorRows[i].original_box_price;
-      i++;
-    }}
-    merged.push({{
-      date: s.date,
-      close: s.close,
-      bulk_price: lastBulk,
-      original_box_price: lastOrig
-    }});
-  }}
-  return merged;
-}}
+function ema(values, span) {{ const alpha = 2 / (span + 1); const out = []; let prev = null; for (const v of values) {{ prev = (prev === null) ? v : alpha * v + (1 - alpha) * prev; out.push(prev); }} return out; }}
+function computeRunupAndDrawdown(closes) {{ let minv = closes[0], maxUp = -1, runMax = closes[0], maxDd = 0; for (const c of closes) {{ if (c < minv) minv = c; const up = c / minv - 1; if (up > maxUp) maxUp = up; if (c > runMax) runMax = c; const dd = c / runMax - 1; if (dd < maxDd) maxDd = dd; }} return {{ maxUp, maxDd }}; }}
+function mergeByStockDays(stockRows, liquorRows) {{ let i = 0, lastBulk = null, lastOrig = null; const merged = []; for (const s of stockRows) {{ while (i < liquorRows.length && liquorRows[i].date <= s.date) {{ if (liquorRows[i].bulk_price !== null) lastBulk = liquorRows[i].bulk_price; if (liquorRows[i].original_box_price !== null) lastOrig = liquorRows[i].original_box_price; i++; }} merged.push({{ date: s.date, close: s.close, bulk_price: lastBulk, original_box_price: lastOrig }}); }} return merged; }}
+function filterMergedByRange(merged, cutoffDate) {{ return merged.filter(r => !cutoffDate || r.date <= cutoffDate); }}
 
 function draw(merged, leftScaleMode) {{
-  const dates = merged.map(x => x.date);
-  const close = merged.map(x => x.close);
-  const bulk = merged.map(x => x.bulk_price);
-  const orig = merged.map(x => x.original_box_price);
-  const ema20 = ema(close, 20);
-  const ema55 = ema(close, 55);
-  const ema100 = ema(close, 100);
-  const ema200 = ema(close, 200);
+  if (!merged || !merged.length) throw new Error('当前筛选区间无数据可绘制。');
+  const dates = merged.map(x => x.date), close = merged.map(x => x.close), bulk = merged.map(x => x.bulk_price), orig = merged.map(x => x.original_box_price);
+  const ema20 = ema(close, 20), ema55 = ema(close, 55), ema100 = ema(close, 100), ema200 = ema(close, 200);
   const stats = computeRunupAndDrawdown(close);
-
   const traces = [
-    {{ x: dates, y: close, name: '贵州茅台股价', type: 'scatter', mode: 'lines', line: {{color:'#1565c0', width:2.2}}, yaxis:'y',
-       hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>贵州茅台股价：%{{y:.2f}} 元<extra></extra>' }},
-    {{ x: dates, y: bulk, name: '飞天茅台53度当年散装参考价', type: 'scatter', mode: 'lines', line: {{color:'#c62828', width:2.2}}, yaxis:'y2',
-       hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>飞天茅台53度当年散装参考价：%{{y:.2f}} 元/瓶<extra></extra>' }},
-    {{ x: dates, y: orig, name: '飞天茅台53度当年原装参考价', type: 'scatter', mode: 'lines', line: {{color:'#ef6c00', width:1.8, dash:'dot'}}, yaxis:'y2', visible:'legendonly',
-       hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>飞天茅台53度当年原装参考价：%{{y:.2f}} 元/瓶<extra></extra>' }},
+    {{ x: dates, y: close, name: '贵州茅台股价', type: 'scatter', mode: 'lines', line: {{color:'#1565c0', width:2.2}}, yaxis:'y', hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>贵州茅台股价：%{{y:.2f}} 元<extra></extra>' }},
+    {{ x: dates, y: bulk, name: '飞天茅台53度当年散装参考价', type: 'scatter', mode: 'lines', line: {{color:'#c62828', width:2.2}}, yaxis:'y2', hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>飞天茅台53度当年散装参考价：%{{y:.2f}} 元/瓶<extra></extra>' }},
+    {{ x: dates, y: orig, name: '飞天茅台53度当年原装参考价', type: 'scatter', mode: 'lines', line: {{color:'#ef6c00', width:1.8, dash:'dot'}}, yaxis:'y2', visible:'legendonly', hovertemplate:'日期：%{{x|%Y年%m月%d日}}<br>飞天茅台53度当年原装参考价：%{{y:.2f}} 元/瓶<extra></extra>' }},
     {{ x: dates, y: ema20, name: 'EMA20', type: 'scatter', mode: 'lines', line: {{color:'#42a5f5', width:1.1}}, visible:'legendonly', yaxis:'y' }},
     {{ x: dates, y: ema55, name: 'EMA55', type: 'scatter', mode: 'lines', line: {{color:'#26a69a', width:1.1}}, visible:'legendonly', yaxis:'y' }},
     {{ x: dates, y: ema100, name: 'EMA100', type: 'scatter', mode: 'lines', line: {{color:'#ab47bc', width:1.1}}, visible:'legendonly', yaxis:'y' }},
     {{ x: dates, y: ema200, name: 'EMA200', type: 'scatter', mode: 'lines', line: {{color:'#8d6e63', width:1.1}}, visible:'legendonly', yaxis:'y' }}
   ];
-
-  const latestBulkIdx = (() => {{
-    for (let i = bulk.length - 1; i >= 0; i--) if (bulk[i] !== null && bulk[i] !== undefined) return i;
-    return -1;
-  }})();
-
+  const latestBulkIdx = (() => {{ for (let i = bulk.length - 1; i >= 0; i--) if (bulk[i] !== null && bulk[i] !== undefined) return i; return -1; }})();
   const annotations = [
-    {{ xref:'paper', yref:'paper', x:0.985, y:0.985, xanchor:'right', yanchor:'top', showarrow:false,
-       text:`最大涨幅：+${{(stats.maxUp*100).toFixed(2)}}%<br>最大回撤：${{(stats.maxDd*100).toFixed(2)}}%`,
-       font:{{size:12,color:'#333'}}, bgcolor:'rgba(255,255,255,0.88)', bordercolor:'rgba(0,0,0,0.2)', borderwidth:1 }},
-    {{ x: dates[dates.length-1], y: close[close.length-1], yref:'y', text:`最新股价: ${{close[close.length-1].toFixed(2)}}`,
-       showarrow:true, arrowhead:2, ax:22, ay:-28, font:{{color:'#1565c0', size:12}}, bgcolor:'rgba(255,255,255,0.75)' }}
+    {{ xref:'paper', yref:'paper', x:0.985, y:0.985, xanchor:'right', yanchor:'top', showarrow:false, text:`最大涨幅：+${{(stats.maxUp*100).toFixed(2)}}%<br>最大回撤：${{(stats.maxDd*100).toFixed(2)}}%`, font:{{size:12,color:'#333'}}, bgcolor:'rgba(255,255,255,0.88)', bordercolor:'rgba(0,0,0,0.2)', borderwidth:1 }},
+    {{ x: dates[dates.length-1], y: close[close.length-1], yref:'y', text:`最新股价: ${{close[close.length-1].toFixed(2)}}`, showarrow:true, arrowhead:2, ax:22, ay:-28, font:{{color:'#1565c0', size:12}}, bgcolor:'rgba(255,255,255,0.75)' }}
   ];
-  if (latestBulkIdx >= 0) {{
-    annotations.push({{ x: dates[latestBulkIdx], y: bulk[latestBulkIdx], yref:'y2', text:`最新散装价: ${{bulk[latestBulkIdx].toFixed(2)}}`,
-       showarrow:true, arrowhead:2, ax:22, ay:28, font:{{color:'#c62828', size:12}}, bgcolor:'rgba(255,255,255,0.75)' }});
-  }}
-
-  Plotly.newPlot('chart', traces, {{
-    title: '贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比<br><sup>时间范围：2018-01-01 至今（按A股交易日对齐）｜酒价数据来源：用户提供的批发参考价整理表（CSV）</sup>',
-    xaxis: {{ title:'日期', type:'date', tickformat:'%Y年%m月', hoverformat:'%Y年%m月%d日', showgrid:false }},
-    yaxis: {{ title:'贵州茅台收盘价（元）', side:'left', showgrid:false, type:(leftScaleMode === 'log' ? 'log' : 'linear') }},
-    yaxis2: {{ title:'飞天茅台53度参考价（元/瓶）', overlaying:'y', side:'right', showgrid:false }},
-    hovermode:'x unified',
-    template:'plotly_white',
-    plot_bgcolor:'white',
-    paper_bgcolor:'white',
-    legend: {{orientation:'h', yanchor:'bottom', y:1.02, xanchor:'left', x:0}},
-    margin: {{l:70, r:70, t:110, b:60}},
-    annotations
-  }}, {{responsive:true}});
+  if (latestBulkIdx >= 0) annotations.push({{ x: dates[latestBulkIdx], y: bulk[latestBulkIdx], yref:'y2', text:`最新散装价: ${{bulk[latestBulkIdx].toFixed(2)}}`, showarrow:true, arrowhead:2, ax:22, ay:28, font:{{color:'#c62828', size:12}}, bgcolor:'rgba(255,255,255,0.75)' }});
+  Plotly.newPlot('chart', traces, {{ title: '贵州茅台股价与飞天茅台53度散瓶市场参考价走势对比<br><sup>时间范围：2018-01-01 至今（按A股交易日对齐）｜酒价数据来源：用户提供的批发参考价整理表（CSV）</sup>', xaxis: {{ title:'日期', type:'date', tickformat:'%Y年%m月', hoverformat:'%Y年%m月%d日', showgrid:false }}, yaxis: {{ title:'贵州茅台收盘价（元）', side:'left', showgrid:false, type:(leftScaleMode === 'log' ? 'log' : 'linear') }}, yaxis2: {{ title:'飞天茅台53度参考价（元/瓶）', overlaying:'y', side:'right', showgrid:false }}, hovermode:'x unified', template:'plotly_white', plot_bgcolor:'white', paper_bgcolor:'white', legend: {{orientation:'h', yanchor:'bottom', y:1.02, xanchor:'left', x:0}}, margin: {{l:70, r:70, t:110, b:60}}, annotations }}, {{responsive:true}});
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
   console.log('[moutai] page loaded');
-
-  const errorEl = document.getElementById('error');
-  const inputEl = document.getElementById('csvInput');
-  const loadBtn = document.getElementById('loadBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const sampleBtn = document.getElementById('sampleBtn');
-  const leftScaleModeEl = document.getElementById('leftScaleMode');
-  const scaleHintEl = document.getElementById('scaleHint');
-
-  let currentScaleMode = 'linear';
-  let lastMerged = null;
-
-  function showError(msg) {{
-    const t = msg || '';
-    if (errorEl) errorEl.textContent = t;
-    if (t) {{
-      console.error('[moutai] error =', t);
-    }}
-  }}
-
-  if (!errorEl || !inputEl || !loadBtn || !clearBtn || !sampleBtn || !leftScaleModeEl || !scaleHintEl) {{
-    showError('页面初始化失败：按钮或输入框未找到（DOM元素缺失）。');
-    return;
-  }}
-
-  if (typeof Plotly === 'undefined') {{
-    showError('Plotly 未加载成功，请检查网络/CDN 后刷新页面。');
-    return;
-  }}
-
-  console.log('[moutai] button bound: loadBtn/clearBtn/sampleBtn');
-
-  function applyScaleMode(mode) {{
-    currentScaleMode = (mode === 'log') ? 'log' : 'linear';
-    scaleHintEl.textContent = `当前坐标模式：${{currentScaleMode === 'log' ? '对数' : '线性'}}`;
-    console.log(`scale mode changed: ${{currentScaleMode}}`);
-  }}
-
-  leftScaleModeEl.addEventListener('change', () => {{
-    try {{
-      applyScaleMode(leftScaleModeEl.value);
-      if (lastMerged && lastMerged.length) {{
-        draw(lastMerged, currentScaleMode);
-      }}
-    }} catch (e) {{
-      showError(String(e && e.message ? e.message : e));
-    }}
-  }});
-
-  applyScaleMode(leftScaleModeEl.value);
-
-  sampleBtn.addEventListener('click', () => {{
-    try {{
-      console.log('[moutai] sample clicked');
-      inputEl.value = sampleCsv;
-      showError('');
-    }} catch (e) {{
-      showError(String(e && e.message ? e.message : e));
-    }}
-  }});
-
-  clearBtn.addEventListener('click', () => {{
-    try {{
-      console.log('[moutai] clear clicked');
-      inputEl.value = '';
-      showError('');
-      try {{ Plotly.purge('chart'); }} catch (_e) {{}}
-      const chartEl = document.getElementById('chart');
-      if (chartEl) chartEl.innerHTML = '';
-      lastMerged = null;
-    }} catch (e) {{
-      showError(String(e && e.message ? e.message : e));
-    }}
-  }});
-
-  loadBtn.addEventListener('click', () => {{
-    try {{
-      console.log('[moutai] load clicked');
-      showError('');
-      if (!inputEl.value || !inputEl.value.trim()) {{
-        throw new Error('CSV 内容为空');
-      }}
-      const liquorRows = parseCsvText(inputEl.value);
-      console.log('[moutai] csv parsed rows =', liquorRows.length);
-      const merged = mergeByStockDays(stock, liquorRows);
-      lastMerged = merged;
-      draw(merged, currentScaleMode);
-      console.log('[moutai] plot rendered');
-    }} catch (e) {{
-      const msg = String(e && e.message ? e.message : e);
-      showError(msg);
-    }}
-  }});
+  const errorEl = document.getElementById('error'), inputEl = document.getElementById('csvInput'), loadBtn = document.getElementById('loadBtn'), clearBtn = document.getElementById('clearBtn'), sampleBtn = document.getElementById('sampleBtn'), leftScaleModeEl = document.getElementById('leftScaleMode'), scaleHintEl = document.getElementById('scaleHint'), cutoffDateEl = document.getElementById('cutoffDate'), applyBacktestBtn = document.getElementById('applyBacktestBtn'), resetBacktestBtn = document.getElementById('resetBacktestBtn'), playBtn = document.getElementById('playBtn'), pauseBtn = document.getElementById('pauseBtn'), playSpeedEl = document.getElementById('playSpeed'), rangeHintEl = document.getElementById('rangeHint');
+  let currentScaleMode = 'linear', mergedAll = null, playTimer = null;
+  function showError(msg) {{ const t = msg || ''; if (errorEl) errorEl.textContent = t; if (t) console.error('[moutai] error =', t); }}
+  if (!errorEl || !inputEl || !loadBtn || !clearBtn || !sampleBtn || !leftScaleModeEl || !scaleHintEl || !cutoffDateEl || !applyBacktestBtn || !resetBacktestBtn || !playBtn || !pauseBtn || !playSpeedEl || !rangeHintEl) {{ showError('页面初始化失败：控件缺失。'); return; }}
+  if (typeof Plotly === 'undefined') {{ showError('Plotly 未加载成功，请检查网络/CDN 后刷新页面。'); return; }}
+  function applyScaleMode(mode) {{ currentScaleMode = (mode === 'log') ? 'log' : 'linear'; scaleHintEl.textContent = `当前坐标模式：${{currentScaleMode === 'log' ? '对数' : '线性'}}`; console.log(`scale mode changed: ${{currentScaleMode}}`); }}
+  function renderFiltered() {{ if (!mergedAll || !mergedAll.length) throw new Error('请先加载并绘图。'); const cutoff = (cutoffDateEl.value || '').trim(); const filtered = filterMergedByRange(mergedAll, cutoff || null); if (!filtered.length) throw new Error('当前回溯截止日期无可显示数据。'); draw(filtered, currentScaleMode); rangeHintEl.textContent = `当前查看范围：${{filtered[0].date}} 至 ${{filtered[filtered.length - 1].date}}｜当前回溯截止日期：${{cutoff || '全历史'}}`; }}
+  function stopPlay() {{ if (playTimer) {{ clearInterval(playTimer); playTimer = null; }} }}
+  function startPlay() {{ if (!mergedAll || !mergedAll.length) throw new Error('请先加载并绘图。'); stopPlay(); const ms = Number(playSpeedEl.value || 400); let idx = 0; cutoffDateEl.value = mergedAll[0].date; renderFiltered(); playTimer = setInterval(() => {{ idx += 1; if (idx >= mergedAll.length) {{ stopPlay(); return; }} cutoffDateEl.value = mergedAll[idx].date; try {{ renderFiltered(); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); stopPlay(); }} }}, ms); }}
+  leftScaleModeEl.addEventListener('change', () => {{ try {{ applyScaleMode(leftScaleModeEl.value); if (mergedAll) renderFiltered(); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); }} }});
+  sampleBtn.addEventListener('click', () => {{ console.log('[moutai] sample clicked'); inputEl.value = sampleCsv; showError(''); }});
+  clearBtn.addEventListener('click', () => {{ console.log('[moutai] clear clicked'); inputEl.value = ''; cutoffDateEl.value = ''; rangeHintEl.textContent = '当前查看范围：未加载数据'; showError(''); mergedAll = null; stopPlay(); try {{ Plotly.purge('chart'); }} catch (_e) {{}} const chartEl = document.getElementById('chart'); if (chartEl) chartEl.innerHTML = ''; }});
+  loadBtn.addEventListener('click', () => {{ try {{ console.log('[moutai] load clicked'); showError(''); if (!inputEl.value || !inputEl.value.trim()) throw new Error('CSV 内容为空'); const liquorRows = parseCsvText(inputEl.value); console.log('[moutai] csv parsed rows =', liquorRows.length); mergedAll = mergeByStockDays(stock, liquorRows); cutoffDateEl.value = ''; renderFiltered(); console.log('[moutai] plot rendered'); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); }} }});
+  applyBacktestBtn.addEventListener('click', () => {{ try {{ showError(''); renderFiltered(); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); }} }});
+  resetBacktestBtn.addEventListener('click', () => {{ try {{ cutoffDateEl.value = ''; showError(''); if (mergedAll) renderFiltered(); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); }} }});
+  playBtn.addEventListener('click', () => {{ try {{ startPlay(); }} catch (e) {{ showError(String(e && e.message ? e.message : e)); }} }});
+  pauseBtn.addEventListener('click', () => {{ stopPlay(); }});
+  applyScaleMode(leftScaleModeEl.value); rangeHintEl.textContent = '当前查看范围：未加载数据';
 }});
 </script>
 </body>

@@ -123,11 +123,13 @@ def generate_interactive_html(stock_rows: list[dict], output_html: Path) -> None
   <div id=\"chart\"></div>
 
 <script>
+console.log("page loaded");
+console.log("js syntax ok");
 const stock = {json.dumps(stock_rows, ensure_ascii=False)};
 const sampleCsv = {json.dumps(sample_csv, ensure_ascii=False)};
 
 function parseCsvText(text) {{
-  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const lines = text.split('\\r').join('').split('\\n').map(s => s.trim()).filter(Boolean);
   if (lines.length < 2) throw new Error('CSV 内容为空或缺少数据行。');
   const headers = lines[0].split(',').map(x => x.trim());
   if (!headers.includes('date')) throw new Error('缺少 date 列');

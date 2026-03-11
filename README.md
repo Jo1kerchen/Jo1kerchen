@@ -279,3 +279,27 @@ fallback 说明：
 ```bash
 python3 -m pip install plotly
 ```
+
+
+## 8) 微信小程序原生图表（非WebView）
+
+已在 `wechat-miniprogram/pages/chart/index` 新增手机端原生 Canvas 图表页（不依赖 Plotly HTML / web-view）：
+
+- 双轴折线图：
+  - 左轴：贵州茅台股价
+  - 右轴：飞天茅台53度散瓶参考价
+- 图例支持手动开关：`EMA20 / EMA55 / EMA100 / EMA200`
+- 触摸 tooltip：显示中文日期（精确到日）+ 两条主线数值
+- 右上角摘要：最大涨幅、最大回撤
+- 去除明显网格线，适配手机屏幕
+
+### 生成小程序图表数据
+
+```bash
+python3 scripts/export_moutai_miniprogram_json.py
+```
+
+输入：`output/moutai_stock_vs_liquor_merged.csv`  
+输出：`wechat-miniprogram/data/moutai_stock_vs_liquor.json`
+
+> 如缺少 merged CSV，请先运行 `python3 moutai_secondary_market_chart.py` 生成。

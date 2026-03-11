@@ -29,6 +29,10 @@ Page({
     });
   },
 
+  goChartPage() {
+    wx.navigateTo({ url: "/pages/chart/index" });
+  },
+
   refreshData() {
     this.setData({ loading: true });
     wx.request({

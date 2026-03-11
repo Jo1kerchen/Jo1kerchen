@@ -13,3 +13,5 @@
 .row { margin: 8rpx 0; font-size: 26rpx; color: #333; }
 .city { font-size: 30rpx; font-weight: 700; }
 .footer { font-size: 22rpx; color: #888; margin-top: 10rpx; }
+
+.chart-btn { margin-top: 12rpx; }

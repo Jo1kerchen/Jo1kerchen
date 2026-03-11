@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+<rect width="100%" height="100%" fill="white"/>
+<text x="600" y="35" text-anchor="middle" font-size="24" font-family="Arial">贵州茅台酒（26年新酒）二级市场价格 vs 贵州茅台A股（按日）</text>
+<line x1="90" y1="70" x2="90" y2="590" stroke="#333"/>
+<line x1="1110" y1="70" x2="1110" y2="590" stroke="#333"/>
+<line x1="90" y1="590" x2="1110" y2="590" stroke="#333"/>
+<line x1="90" y1="70.00" x2="1110" y2="70.00" stroke="#eee"/>
+<text x="80" y="75.00" text-anchor="end" font-size="12" fill="#c62828">33450</text>
+<text x="1120" y="75.00" text-anchor="start" font-size="12" fill="#1565c0">1520.80</text>
+<line x1="90" y1="200.00" x2="1110" y2="200.00" stroke="#eee"/>
+<text x="80" y="205.00" text-anchor="end" font-size="12" fill="#c62828">33275</text>
+<text x="1120" y="205.00" text-anchor="start" font-size="12" fill="#1565c0">1512.72</text>
+<line x1="90" y1="330.00" x2="1110" y2="330.00" stroke="#eee"/>
+<text x="80" y="335.00" text-anchor="end" font-size="12" fill="#c62828">33100</text>
+<text x="1120" y="335.00" text-anchor="start" font-size="12" fill="#1565c0">1504.65</text>
+<line x1="90" y1="460.00" x2="1110" y2="460.00" stroke="#eee"/>
+<text x="80" y="465.00" text-anchor="end" font-size="12" fill="#c62828">32925</text>
+<text x="1120" y="465.00" text-anchor="start" font-size="12" fill="#1565c0">1496.58</text>
+<line x1="90" y1="590.00" x2="1110" y2="590.00" stroke="#eee"/>
+<text x="80" y="595.00" text-anchor="end" font-size="12" fill="#c62828">32750</text>
+<text x="1120" y="595.00" text-anchor="start" font-size="12" fill="#1565c0">1488.50</text>
+<text x="90.00" y="615" text-anchor="middle" font-size="12">02-03</text>
+<text x="203.33" y="615" text-anchor="middle" font-size="12">02-04</text>
+<text x="316.67" y="615" text-anchor="middle" font-size="12">02-05</text>
+<text x="430.00" y="615" text-anchor="middle" font-size="12">02-06</text>
+<text x="543.33" y="615" text-anchor="middle" font-size="12">02-09</text>
+<text x="656.67" y="615" text-anchor="middle" font-size="12">02-10</text>
+<text x="770.00" y="615" text-anchor="middle" font-size="12">02-11</text>
+<text x="883.33" y="615" text-anchor="middle" font-size="12">02-12</text>
+<text x="996.67" y="615" text-anchor="middle" font-size="12">02-13</text>
+<text x="1110.00" y="615" text-anchor="middle" font-size="12">02-16</text>
+<polyline fill="none" stroke="#c62828" stroke-width="2.5" points="90.00,552.86 203.33,590.00 316.67,478.57 430.00,367.14 543.33,330.00 656.67,389.43 770.00,196.29 883.33,181.43 996.67,240.86 1110.00,70.00"/>
+<polyline fill="none" stroke="#1565c0" stroke-width="2.5" points="90.00,590.00 203.33,466.04 316.67,372.66 430.00,520.77 543.33,274.46 656.67,158.54 770.00,379.10 883.33,197.18 996.67,305.05 1110.00,70.00"/>
+<text x="25" y="330.00" transform="rotate(-90 25,330.00)" font-size="12" fill="#c62828">二级市场价（元）</text>
+<text x="1175" y="330.00" transform="rotate(90 1175,330.00)" font-size="12" fill="#1565c0">A股收盘价（元）</text>
+<line x1="130" y1="55" x2="180" y2="55" stroke="#c62828" stroke-width="3"/>
+<text x="190" y="60" font-size="12">二级市场价</text>
+<line x1="320" y1="55" x2="370" y2="55" stroke="#1565c0" stroke-width="3"/>
+<text x="380" y="60" font-size="12">A股收盘价</text>
+</svg>

@@ -1,5 +1,8 @@
 {
-  "pages": ["pages/index/index"],
+  "pages": [
+    "pages/index/index",
+    "pages/chart/index"
+  ],
   "window": {
     "navigationBarTitleText": "二手房趋势",
     "navigationBarBackgroundColor": "#ffffff",
